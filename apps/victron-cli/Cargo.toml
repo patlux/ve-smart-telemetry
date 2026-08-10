@@ -12,7 +12,22 @@ name = "victron-cli"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-thiserror = "2"
+clap.workspace = true
+flate2.workspace = true
+hex.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+victron-bluez = { path = "../../crates/victron-bluez" }
+victron-client = { path = "../../crates/victron-client" }
+victron-domain = { path = "../../crates/victron-domain" }
+victron-metrics = { path = "../../crates/victron-metrics", features = ["domain"] }
+victron-protocol = { path = "../../crates/victron-protocol" }
 
 [dev-dependencies]
+tempfile.workspace = true

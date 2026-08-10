@@ -6,8 +6,11 @@
 //! ```text
 //! victron-cli adapters
 //! victron-cli discover --device <alias> [--adapter hci0] [--timeout-seconds 10]
-//! victron-cli read-once --device <alias> [--instance 3] [--timeout-seconds 8]
+//! victron-cli read-once --device <alias> [--instance 3] [--timeout-seconds 10]
+//! victron-cli read-history --device <alias> [--days 30]
 //! victron-cli decode-fixture <path>
+//! victron-cli extract-qmlcache <elf> --out <json>
+//! victron-cli map-qml-fields <qmlcache-json> --out <json>
 //! victron-cli render-metrics <fixture> [--device <name>] [--instance 3]
 //! victron-cli check-victoriametrics [--url ...] [--timeout-ms 3000]
 //! ```
@@ -43,10 +46,16 @@ enum Command {
     Adapters(commands::adapters::Adapters),
     /// Discover the configured Victron device. Not wired yet.
     Discover(commands::discover::Discover),
-    /// One-shot read from the device. Not wired yet.
+    /// One-shot read from the device.
     ReadOnce(commands::read_once::ReadOnce),
+    /// Read historical paths or the observed VREG fallback.
+    ReadHistory(commands::read_history::ReadHistory),
     /// Decode a captured notification fixture. Not wired yet.
     DecodeFixture(commands::decode_fixture::DecodeFixture),
+    /// Extract QML cache strings from a little-endian ELF32 file.
+    ExtractQmlcache(commands::extract_qmlcache::ExtractQmlcache),
+    /// Map extracted QML strings to static UI field candidates.
+    MapQmlFields(commands::map_qml_fields::MapQmlFields),
     /// Render a fixture as Prometheus text. Not wired yet.
     RenderMetrics(commands::render_metrics::RenderMetrics),
     /// Probe VictoriaMetrics reachability (transport only).
@@ -72,13 +81,17 @@ impl CliError {
     }
 }
 
-fn main() -> ExitCode {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
     let cli = Cli::parse();
     let result: Result<(), CliError> = match cli.command {
         Command::Adapters(c) => c.run(),
         Command::Discover(c) => c.run(),
-        Command::ReadOnce(c) => c.run(),
+        Command::ReadOnce(c) => c.run().await,
+        Command::ReadHistory(c) => c.run().await,
         Command::DecodeFixture(c) => c.run(),
+        Command::ExtractQmlcache(c) => c.run(),
+        Command::MapQmlFields(c) => c.run(),
         Command::RenderMetrics(c) => c.run(),
         Command::CheckVictoriaMetrics(c) => c.run(),
     };
