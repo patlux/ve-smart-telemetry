@@ -86,12 +86,13 @@ cargo run --example crosscheck -- ../../fixtures/protocol
   saturating and the depth/item semantics are documented exactly.
 - **Bounds**: reassembler 64 KiB; CBOR depth 16, 4096 items/stream, 64 KiB
   per string item, arrays ≤ 65536; requests ≤ 512 registers/indexes.
-- **Confidence**: only solar voltage (`0xedbb`, u16/100) is
-  `Confidence::Confirmed`. Everything else is `Candidate` until verified
-  against VictronConnect on the target device — including the five decoders
-  added from the live reader's `FIELDS` table (`0xedbd`, `0x0201`, `0xeda8`,
-  `0xedad`, `0xedaa`). The lifetime-yield register `0xed8e` has **no**
-  mapping yet (documented blocker, not invented).
+- **Confidence**: solar voltage (`0xedbb`, u16/100) and panel power
+  (`0xedbc`, u32/100 W) are `Confidence::Confirmed`. Both match live target
+  captures; `0xedbc` is also specified by Victron's BlueSolar HEX protocol.
+  Everything else is `Candidate` until independently verified — including
+  the five decoders added from the live reader's `FIELDS` table (`0xedbd`,
+  `0x0201`, `0xeda8`, `0xedad`, `0xedaa`). The lifetime-yield register
+  `0xed8e` has **no** mapping yet (documented blocker, not invented).
 - **Errors**: `ProtocolError` is typed and its `Display` never includes
   payload bytes or device data.
 - **Transport integration**: map `ServiceVariant::characteristics()` onto

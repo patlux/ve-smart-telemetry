@@ -13,7 +13,7 @@ use victron_service::{AcquirePlan, ProtocolAdapter, ProtocolError, RawValue};
 pub const MVP_VREGS: &[u16] = &[
     0xedbb, // confirmed PV voltage
     0xedbd, // candidate PV current
-    0xedbc, // candidate PV power
+    0xedbc, // confirmed PV power
     0xed8d, // candidate battery voltage
     0xed8c, // candidate battery current
     0x0201, // candidate charger state
@@ -178,6 +178,21 @@ mod tests {
         assert_eq!(sample.pv_voltage_volts().unwrap().value(), 28.03);
         assert_eq!(
             sample.pv_voltage_volts().unwrap().quality(),
+            Quality::ConfirmedNative
+        );
+    }
+
+    #[test]
+    fn translates_documented_panel_power_as_confirmed() {
+        let protocol = VeSmartProtocol::new(DeviceId::new("solar-charger").unwrap());
+        // Victron BlueSolar HEX protocol: 0xEDBC Panel power, un32,
+        // scale 0.01 W. Raw 100 therefore resolves to 1 W.
+        let bytes = [0x08, 0x03, 0x19, 0xed, 0xbc, 0x44, 0x64, 0x00, 0x00, 0x00];
+        let values = protocol.parse_response(3, &bytes).unwrap();
+        let sample = protocol.translate(3, &values).unwrap();
+        assert_eq!(sample.pv_power_watts().unwrap().value(), 1.0);
+        assert_eq!(
+            sample.pv_power_watts().unwrap().quality(),
             Quality::ConfirmedNative
         );
     }

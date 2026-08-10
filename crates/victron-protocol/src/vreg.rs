@@ -4,10 +4,11 @@
 //! Decoders are ported from `decode_vreg_payload()` in
 //! `scripts/read-victron-history.py` and the `FIELDS`/`decode_raw()` tables
 //! in `scripts/read-victron-live-values.py` (the union of both readers).
-//! Only solar voltage (`0xedbb`, u16 LE / 100) is marked
-//! [`Confidence::Confirmed`] — the one register the live tooling confirmed.
-//! Everything else is [`Confidence::Candidate`] until confirmed against
-//! VictronConnect on the target device.
+//! Solar voltage (`0xedbb`, u16 LE / 100) and panel power (`0xedbc`, u32
+//! LE / 100 W) are marked [`Confidence::Confirmed`]. Both match live target
+//! captures; the panel-power identity, type, unit, and scale are additionally
+//! specified by Victron's BlueSolar HEX protocol. Everything else remains
+//! [`Confidence::Candidate`] until independently confirmed.
 //!
 //! Explicitly candidate decoders added from the live reader's `FIELDS`
 //! table (all `candidate` there too): `0xedbd` solar current `u16_le/10` A,
@@ -199,7 +200,7 @@ pub fn decode_register(register: u16, raw: &[u8]) -> DecodedVreg {
                 "Solar power",
                 Some("W"),
                 "u32_le/100 rounded",
-                Confidence::Candidate,
+                Confidence::Confirmed,
                 value,
                 sentinel.or(inv),
             )

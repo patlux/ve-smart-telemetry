@@ -60,10 +60,12 @@ fn battery_voltage_scaling_from_capture() {
 }
 
 #[test]
-fn solar_power_rounded_from_capture() {
-    // 64000000 → 100 → round(100/100) = 1 W
-    assert_eq!(integer(0xEDBC, "64000000"), 1);
-    // 00000000 → 0
+fn solar_power_confirmed_from_capture_and_protocol_specification() {
+    // Victron BlueSolar HEX protocol: panel power is u32 LE at 0.01 W.
+    let decoded = VregValue::new(0xEDBC, hex("64000000")).decode();
+    assert_eq!(decoded.confidence, Confidence::Confirmed);
+    assert_eq!(decoded.value, Some(Scaled::Integer(1)));
+    // 00000000 → 0 W
     assert_eq!(integer(0xEDBC, "00000000"), 0);
 }
 
@@ -334,7 +336,7 @@ fn solar_power_rounding_matches_python_ties_to_even() {
         );
         assert_eq!(d.unit, Some("W"));
         assert_eq!(d.name, Some("Solar power"));
-        assert_eq!(d.confidence, Confidence::Candidate);
+        assert_eq!(d.confidence, Confidence::Confirmed);
     }
 }
 
