@@ -66,6 +66,38 @@ async fn success_cycle_persists_delivers_and_records_health() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn idle_shutdown_hard_disconnects_a_retained_session() {
+    let mut h = Harness::new(base_config());
+    h.ble.lock().unwrap().retain_on_finish = true;
+    let ctx = h.take_ctx();
+    let summary = h
+        .drive(async {
+            let handle = h.spawn_runner(ctx);
+            tokio::task::yield_now().await;
+
+            assert_eq!(h.samples_persisted().await, 1);
+            assert_eq!(
+                h.ble_calls.lock().unwrap().disconnect,
+                0,
+                "successful cycle retained the healthy session"
+            );
+
+            h.shutdown_tx.send(true).unwrap();
+            tokio::task::yield_now().await;
+            handle.await.expect("runner task panicked").expect("run ok")
+        })
+        .await;
+
+    assert!(summary.graceful);
+    assert_eq!(summary.cycles_succeeded, 1);
+    assert_eq!(
+        h.ble_calls.lock().unwrap().disconnect,
+        1,
+        "shutdown from idle must hard-close a retained session"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn ble_timeout_fails_phase_then_backoff_and_recovers() {
     let mut h = Harness::new(base_config());
     // First request hangs (gate never released) and hits the phase timeout;

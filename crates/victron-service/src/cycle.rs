@@ -474,7 +474,7 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
     phase(
         CyclePhase::Disconnecting,
         ctx.config.phase_timeout,
-        ctx.ports.ble.disconnect(),
+        ctx.ports.ble.finish_cycle(),
     )
     .await
     .map_err(|e| (CyclePhase::Disconnecting, CycleError::Disconnect(e)))?;

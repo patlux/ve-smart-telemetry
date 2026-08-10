@@ -109,7 +109,15 @@ pub trait BleSession {
         timeout: Duration,
     ) -> Result<Vec<u8>, BleError>;
 
-    /// Tear down the connection. Must be idempotent and safe to call after
-    /// any failure.
+    /// Finish a successful acquisition cycle. Implementations may retain a
+    /// healthy connection they created for reuse by the next cycle. The
+    /// default remains a hard disconnect, so implementations keep the
+    /// original lifecycle unless they explicitly opt into reuse.
+    async fn finish_cycle(&mut self) -> Result<(), BleError> {
+        self.disconnect().await
+    }
+
+    /// Hard-close the connection. Failure and shutdown paths always use this
+    /// operation. Must be idempotent and safe to call after any failure.
     async fn disconnect(&mut self) -> Result<(), BleError>;
 }

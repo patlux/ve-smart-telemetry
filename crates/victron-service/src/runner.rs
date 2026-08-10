@@ -70,6 +70,7 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
         ctx.observer.on_progress(ctx.state.current());
 
         if shutdown_requested(&mut ctx) {
+            disconnect_for_shutdown(&mut ctx).await;
             goto_idle_or_shutdown(&mut ctx)?;
             graceful = true;
             break;
@@ -109,6 +110,7 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
                     _ = ctx.shutdown.changed() => {}
                 }
                 if shutdown_requested(&mut ctx) {
+                    disconnect_for_shutdown(&mut ctx).await;
                     goto_idle_or_shutdown(&mut ctx)?;
                     graceful = true;
                     break;
@@ -182,6 +184,11 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
         graceful,
         health: ctx.health.snapshot(),
     })
+}
+
+async fn disconnect_for_shutdown(ctx: &mut CycleContext) {
+    ctx.observer.on_progress(CyclePhase::Disconnecting);
+    let _ = tokio::time::timeout(ctx.config.phase_timeout, ctx.ports.ble.disconnect()).await;
 }
 
 fn goto_idle(ctx: &mut CycleContext) -> Result<(), RunError> {

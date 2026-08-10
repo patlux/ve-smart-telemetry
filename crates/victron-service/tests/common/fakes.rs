@@ -34,6 +34,8 @@ pub struct FakeBle {
     pub calls: Arc<Mutex<BleCalls>>,
     pub connect_script: VecDeque<Result<(), BleError>>,
     pub fixture: Vec<u8>,
+    /// Model a concrete adapter that retains healthy sessions after success.
+    pub retain_on_finish: bool,
     /// Signal "entered request_values" to the test.
     pub entered_tx: Option<mpsc::UnboundedSender<()>>,
     /// Receiver the test releases to let request_values finish.
@@ -46,6 +48,7 @@ impl FakeBle {
             calls,
             connect_script: VecDeque::new(),
             fixture: b"fixture-bytes".to_vec(),
+            retain_on_finish: false,
             entered_tx: None,
             release_rx: None,
         }
@@ -121,6 +124,14 @@ impl BleSession for SharedBle {
             let _ = rx.recv().await;
         }
         Ok(self.0.lock().unwrap().fixture.clone())
+    }
+
+    async fn finish_cycle(&mut self) -> Result<(), BleError> {
+        if self.0.lock().unwrap().retain_on_finish {
+            Ok(())
+        } else {
+            self.disconnect().await
+        }
     }
 
     async fn disconnect(&mut self) -> Result<(), BleError> {

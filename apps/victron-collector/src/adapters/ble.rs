@@ -39,6 +39,7 @@ pub struct VeSmartBleSession {
     pending: Reassembler,
     receive_credit: ReceiveCredit,
     fallback_values: Option<Vec<u8>>,
+    reusable: bool,
 }
 
 impl VeSmartBleSession {
@@ -51,6 +52,7 @@ impl VeSmartBleSession {
             pending: Reassembler::new(),
             receive_credit: ReceiveCredit::default(),
             fallback_values: None,
+            reusable: false,
         }
     }
 
@@ -328,6 +330,13 @@ impl BleSession for VeSmartBleSession {
     }
 
     async fn negotiate(&mut self, frames: &[Vec<u8>]) -> Result<(), BleError> {
+        if self.negotiated {
+            tracing::debug!(
+                operation = "session-reuse",
+                "reusing negotiated BLE session"
+            );
+            return Ok(());
+        }
         let control = self
             .transport
             .read_control()
@@ -342,12 +351,26 @@ impl BleSession for VeSmartBleSession {
                 .map_err(map_transport_error)?;
         }
         self.negotiated = true;
+        self.reusable = false;
         Ok(())
     }
 
     async fn subscribe(&mut self, instance: u16, payload: &[u8]) -> Result<(), BleError> {
         if !self.negotiated {
             return Err(BleError::Other("protocol not negotiated".into()));
+        }
+        if self.subscribed_instance == Some(instance) {
+            tracing::debug!(
+                operation = "session-reuse",
+                instance,
+                "reusing active VE.Smart subscription"
+            );
+            // Notifications can accumulate while the runner sleeps. Drain to
+            // a short quiet period (replenishing receive credit on the way)
+            // so the following explicit getValues request is correlated
+            // against fresh traffic rather than an idle-period backlog.
+            self.drain_completed_payloads(instance).await?;
+            return Ok(());
         }
         self.write_request(payload).await?;
         // Subscribe produces acknowledgements/push notifications on the same
@@ -367,6 +390,7 @@ impl BleSession for VeSmartBleSession {
         let instance = self
             .subscribed_instance
             .ok_or_else(|| BleError::Other("device is not subscribed".into()))?;
+        self.reusable = false;
         for attempt in 1..=2u8 {
             self.pending.clear();
             self.write_request(payload).await?;
@@ -374,7 +398,10 @@ impl BleSession for VeSmartBleSession {
                 .wait_for_values(instance, Instant::now() + timeout)
                 .await
             {
-                Ok(values) => return Ok(values),
+                Ok(values) => {
+                    self.reusable = true;
+                    return Ok(values);
+                }
                 Err(error) => {
                     if let Some(values) = self.fallback_values.take() {
                         tracing::debug!(
@@ -384,6 +411,7 @@ impl BleSession for VeSmartBleSession {
                             error_kind = error.kind(),
                             "using correlated subscription values after explicit request failure"
                         );
+                        self.reusable = true;
                         return Ok(values);
                     }
                     if attempt == 1 && matches!(error, BleError::Timeout { .. }) {
@@ -404,6 +432,18 @@ impl BleSession for VeSmartBleSession {
         unreachable!("bounded getValues attempts always return")
     }
 
+    async fn finish_cycle(&mut self) -> Result<(), BleError> {
+        if self.reusable {
+            tracing::debug!(
+                operation = "session-reuse",
+                "retaining healthy BLE session for the next cycle"
+            );
+            Ok(())
+        } else {
+            self.disconnect().await
+        }
+    }
+
     async fn disconnect(&mut self) -> Result<(), BleError> {
         self.transport.close().await;
         self.opened = false;
@@ -412,6 +452,7 @@ impl BleSession for VeSmartBleSession {
         self.pending.clear();
         self.receive_credit.clear();
         self.fallback_values = None;
+        self.reusable = false;
         Ok(())
     }
 }
