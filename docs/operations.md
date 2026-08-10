@@ -15,6 +15,68 @@ journalctl -u victron-collector -f     # follow logs (journald)
 journalctl -u victron-collector --since "1 hour ago"
 ```
 
+## Logging and BLE diagnostics
+
+The default `RUST_LOG=info` is intentionally concise: startup, one result per
+acquisition cycle, spool-drain summaries, shutdown, and warnings/errors. Cycle
+results carry `cycle_id`, `device`, `elapsed_ms`, `energy_kind`, and `delivery`;
+failures additionally carry the failed `phase`, a stable `error_kind`, and a
+bounded `operation` such as `notification`. Sensitive values are deliberately absent:
+no BLE address, PIN/bond material, raw payload, unrestricted D-Bus message, or
+VictoriaMetrics URL is logged.
+
+Enable detailed BLE timing temporarily with a systemd drop-in:
+
+```bash
+sudo mkdir -p /etc/systemd/system/victron-collector.service.d
+printf '%s\n' \
+  '[Service]' \
+  'Environment=RUST_LOG=info,victron_bluez=debug,victron_collector::adapters::ble=debug,victron_collector::watchdog=debug,victron_service::cycle=debug' \
+  | sudo tee /etc/systemd/system/victron-collector.service.d/10-logging.conf
+sudo systemctl daemon-reload
+sudo systemctl restart victron-collector
+journalctl -u victron-collector --since "10 minutes ago" -o short-iso
+journalctl -u victron-collector --since "10 minutes ago" -o cat \
+  | grep -E 'acquisition cycle|phase=requesting|operation=(discovery-scan|get-values-response)'
+```
+
+Useful debug fields:
+
+| Field | Meaning |
+|---|---|
+| `cycle_id` | monotonic process-local acquisition number |
+| `phase` / `previous_phase` | state-machine phase and transition timing |
+| `operation` | bounded BlueZ/protocol operation label |
+| `elapsed_ms` / `timeout_ms` | observed duration and configured deadline |
+| `attempt` / `error_class` | connect retry number and redacted failure class |
+| `known_devices` / `unique_devices_seen` | discovery population counts, never addresses |
+| `notifications` | total notifications while waiting for `getValues` |
+| `control_notifications`, `data_notifications`, `last_data_notifications` | notification-source counts |
+| `completed_payloads`, `unrelated_payloads` | reassembled responses and responses ignored by instance/value correlation |
+| `clear_buffer_notifications` | peer buffer-reset controls observed while waiting |
+| `response_bytes` / `payload_bytes` | bounded payload sizes; byte content is never logged |
+
+For the noisiest per-payload correlation events, temporarily replace the
+same drop-in with a trace directive only for the BLE adapter:
+
+```bash
+printf '%s\n' \
+  '[Service]' \
+  'Environment=RUST_LOG=info,victron_bluez=debug,victron_collector::adapters::ble=trace,victron_collector::watchdog=debug,victron_service::cycle=debug' \
+  | sudo tee /etc/systemd/system/victron-collector.service.d/10-logging.conf
+sudo systemctl daemon-reload
+sudo systemctl restart victron-collector
+```
+
+Remove temporary verbosity after capture so the Pi Zero W does not retain
+high-volume logs:
+
+```bash
+sudo rm -f /etc/systemd/system/victron-collector.service.d/10-logging.conf
+sudo systemctl daemon-reload
+sudo systemctl restart victron-collector
+```
+
 The unit restarts on failure with a 30 s delay and gives up after 5
 failures in 600 s (no crash loop). It also uses `Type=notify` with a 180 s
 progress watchdog: READY is sent only after full initialization, and the
