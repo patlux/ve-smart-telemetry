@@ -28,9 +28,9 @@ pub enum BleError {
     /// Bond/pairing problem.
     #[error("authentication failure")]
     Authentication,
-    /// The phase exceeded its deadline.
-    #[error("timeout")]
-    Timeout,
+    /// A bounded BLE operation or service phase exceeded its deadline.
+    #[error("timeout: {operation}")]
+    Timeout { operation: &'static str },
     /// Connection dropped while a request was in flight.
     #[error("connection dropped")]
     Disconnected,
@@ -43,6 +43,31 @@ pub enum BleError {
     /// The adapter is a placeholder until a concrete sibling crate is wired.
     #[error("not wired: {0}")]
     NotWired(&'static str),
+}
+
+impl BleError {
+    /// Stable, payload-free classification for structured logs.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            BleError::NotFound => "not_found",
+            BleError::OutOfRange => "out_of_range",
+            BleError::Contention => "contention",
+            BleError::Authentication => "authentication",
+            BleError::Timeout { .. } => "timeout",
+            BleError::Disconnected => "disconnected",
+            BleError::Transport(_) => "transport",
+            BleError::Other(_) => "other",
+            BleError::NotWired(_) => "not_wired",
+        }
+    }
+
+    /// Bounded operation label when the failure is a timeout.
+    pub fn operation(&self) -> Option<&'static str> {
+        match self {
+            BleError::Timeout { operation } => Some(operation),
+            _ => None,
+        }
+    }
 }
 
 /// One short-lived BLE session: discover -> connect -> negotiate -> subscribe

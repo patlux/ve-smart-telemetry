@@ -189,8 +189,11 @@ impl BluezTransport {
     }
 
     async fn connect_with_retry(&self, device: &Device) -> Result<(), BleError> {
-        let deadline = Instant::now() + self.config.connect_timeout;
+        let started_at = Instant::now();
+        let deadline = started_at + self.config.connect_timeout;
+        let mut attempt = 0u32;
         loop {
+            attempt = attempt.saturating_add(1);
             let remaining =
                 deadline
                     .checked_duration_since(Instant::now())
@@ -198,9 +201,23 @@ impl BluezTransport {
                         operation: "connect",
                     })?;
             match tokio::time::timeout(remaining, device.connect()).await {
-                Ok(Ok(())) => return Ok(()),
+                Ok(Ok(())) => {
+                    tracing::debug!(
+                        operation = "connect",
+                        attempt,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        "BLE connection established"
+                    );
+                    return Ok(());
+                }
                 Ok(Err(err)) if retryable_connect_kind(&err.kind) => {
-                    log::debug!("transient connect failure; retrying within phase deadline");
+                    tracing::debug!(
+                        operation = "connect",
+                        attempt,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        error_class = ?from_bluer(&err).class(),
+                        "transient BLE connection failure; retrying within deadline"
+                    );
                     let _ = bounded("connect-retry-cancel", self.op_timeout(), async {
                         device.disconnect().await.map_err(|e| from_bluer(&e))
                     })
@@ -212,12 +229,28 @@ impl BluezTransport {
                     )?;
                     tokio::time::sleep(remaining.min(Duration::from_secs(1))).await;
                 }
-                Ok(Err(err)) => return Err(from_bluer(&err)),
+                Ok(Err(err)) => {
+                    let error = from_bluer(&err);
+                    tracing::debug!(
+                        operation = "connect",
+                        attempt,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        error_class = ?error.class(),
+                        "BLE connection failed without retry"
+                    );
+                    return Err(error);
+                }
                 Err(_) => {
                     let _ = bounded("connect-timeout-cancel", self.op_timeout(), async {
                         device.disconnect().await.map_err(|e| from_bluer(&e))
                     })
                     .await;
+                    tracing::debug!(
+                        operation = "connect",
+                        attempt,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        "BLE connection deadline expired"
+                    );
                     return Err(BleError::Timeout {
                         operation: "connect",
                     });
@@ -274,7 +307,7 @@ impl BleTransport for BluezTransport {
             });
         }
 
-        log::debug!("connecting to configured device");
+        tracing::debug!(operation = "connect", "connecting to configured device");
         self.connect_with_retry(&device).await?;
 
         // Transactional tail: locate + subscribe must all succeed before any
@@ -303,13 +336,14 @@ impl BleTransport for BluezTransport {
                 self.control_notifications = Some(control_notifications);
                 self.last_data_notifications = Some(last_data_notifications);
                 self.data_notifications = Some(data_notifications);
-                log::info!("BLE transport open");
+                tracing::debug!(operation = "transport-open", "BLE transport open");
                 Ok(())
             }
             Err(err) => {
-                log::debug!(
-                    "open failed; rolling back connection (class {:?})",
-                    err.class()
+                tracing::debug!(
+                    operation = "transport-open",
+                    error_class = ?err.class(),
+                    "open failed; rolling back BLE connection"
                 );
                 let _ = bounded("disconnect-rollback", self.op_timeout(), async {
                     device.disconnect().await.map_err(|e| from_bluer(&e))
@@ -419,14 +453,15 @@ impl BleTransport for BluezTransport {
             })
             .await;
             if let Err(err) = result {
-                log::debug!(
-                    "disconnect failed during close (ignored): {:?}",
-                    err.class()
+                tracing::debug!(
+                    operation = "disconnect",
+                    error_class = ?err.class(),
+                    "disconnect failed during close; continuing cleanup"
                 );
             }
         }
         self.state.clear();
-        log::debug!("BLE transport closed");
+        tracing::debug!(operation = "transport-close", "BLE transport closed");
     }
 }
 

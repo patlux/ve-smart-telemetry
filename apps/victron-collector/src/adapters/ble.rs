@@ -8,6 +8,23 @@ use victron_protocol::control::{ControlInfo, ControlMessage};
 use victron_protocol::{OutboundTarget, Reassembler, Response};
 use victron_service::{BleError, BleSession};
 
+#[derive(Debug, Default)]
+struct NotificationCounts {
+    control: u32,
+    data: u32,
+    last_data: u32,
+    clear_buffer: u32,
+    completed_payloads: u32,
+}
+
+impl NotificationCounts {
+    fn total(&self) -> u32 {
+        self.control
+            .saturating_add(self.data)
+            .saturating_add(self.last_data)
+    }
+}
+
 pub struct VeSmartBleSession {
     transport: victron_bluez::BluezTransport,
     opened: bool,
@@ -38,31 +55,62 @@ impl VeSmartBleSession {
         Ok(())
     }
 
-    async fn next_payload(&mut self, deadline: Instant) -> Result<Vec<u8>, BleError> {
+    async fn next_payload(
+        &mut self,
+        deadline: Instant,
+        counts: &mut NotificationCounts,
+    ) -> Result<Vec<u8>, BleError> {
         loop {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
-                .ok_or(BleError::Timeout)?;
+                .ok_or_else(|| {
+                    tracing::debug!(
+                        operation = "wait-for-payload",
+                        "response deadline expired before a complete payload arrived"
+                    );
+                    BleError::Timeout {
+                        operation: "response-deadline",
+                    }
+                })?;
             let notification = tokio::time::timeout(remaining, self.transport.next_notification())
                 .await
-                .map_err(|_| BleError::Timeout)?
+                .map_err(|_| {
+                    tracing::debug!(
+                        operation = "notification-wait",
+                        remaining_ms = remaining.as_millis() as u64,
+                        "response deadline expired while waiting for a BLE notification"
+                    );
+                    BleError::Timeout {
+                        operation: "response-deadline",
+                    }
+                })?
                 .map_err(map_transport_error)?;
             match notification.source {
-                NotificationSource::Control => match ControlMessage::parse(&notification.value) {
-                    Ok(ControlMessage::Error { .. }) => return Err(BleError::Contention),
-                    Ok(ControlMessage::ClearBuffer) => self.pending.clear(),
-                    _ => {}
-                },
-                NotificationSource::Data => self
-                    .pending
-                    .push_data(&notification.value)
-                    .map_err(map_reassembly_error)?,
+                NotificationSource::Control => {
+                    counts.control = counts.control.saturating_add(1);
+                    match ControlMessage::parse(&notification.value) {
+                        Ok(ControlMessage::Error { .. }) => return Err(BleError::Contention),
+                        Ok(ControlMessage::ClearBuffer) => {
+                            counts.clear_buffer = counts.clear_buffer.saturating_add(1);
+                            self.pending.clear();
+                        }
+                        _ => {}
+                    }
+                }
+                NotificationSource::Data => {
+                    counts.data = counts.data.saturating_add(1);
+                    self.pending
+                        .push_data(&notification.value)
+                        .map_err(map_reassembly_error)?;
+                }
                 NotificationSource::LastData => {
+                    counts.last_data = counts.last_data.saturating_add(1);
                     if let Some(payload) = self
                         .pending
                         .push_last_data(&notification.value)
                         .map_err(map_reassembly_error)?
                     {
+                        counts.completed_payloads = counts.completed_payloads.saturating_add(1);
                         return Ok(payload);
                     }
                 }
@@ -72,31 +120,58 @@ impl VeSmartBleSession {
 
     async fn drain_completed_payloads(&mut self, quiet: Duration) -> Result<(), BleError> {
         self.pending.clear();
+        let mut notifications = 0u32;
+        let mut completed_payloads = 0u32;
         loop {
             match tokio::time::timeout(quiet, self.transport.next_notification()).await {
-                Err(_) => return Ok(()),
-                Ok(Err(TransportError::Timeout { .. })) => return Ok(()),
+                Err(_) => {
+                    tracing::debug!(
+                        operation = "subscribe-drain",
+                        notifications,
+                        completed_payloads,
+                        quiet_ms = quiet.as_millis() as u64,
+                        "subscribe notification queue reached quiet period"
+                    );
+                    return Ok(());
+                }
+                Ok(Err(TransportError::Timeout { .. })) => {
+                    tracing::debug!(
+                        operation = "subscribe-drain",
+                        notifications,
+                        completed_payloads,
+                        quiet_ms = quiet.as_millis() as u64,
+                        "subscribe notification queue reached transport quiet period"
+                    );
+                    return Ok(());
+                }
                 Ok(Err(error)) => return Err(map_transport_error(error)),
-                Ok(Ok(notification)) => match notification.source {
-                    NotificationSource::Control => {
-                        if matches!(
-                            ControlMessage::parse(&notification.value),
-                            Ok(ControlMessage::ClearBuffer)
-                        ) {
-                            self.pending.clear();
+                Ok(Ok(notification)) => {
+                    notifications = notifications.saturating_add(1);
+                    match notification.source {
+                        NotificationSource::Control => {
+                            if matches!(
+                                ControlMessage::parse(&notification.value),
+                                Ok(ControlMessage::ClearBuffer)
+                            ) {
+                                self.pending.clear();
+                            }
+                        }
+                        NotificationSource::Data => self
+                            .pending
+                            .push_data(&notification.value)
+                            .map_err(map_reassembly_error)?,
+                        NotificationSource::LastData => {
+                            if self
+                                .pending
+                                .push_last_data(&notification.value)
+                                .map_err(map_reassembly_error)?
+                                .is_some()
+                            {
+                                completed_payloads = completed_payloads.saturating_add(1);
+                            }
                         }
                     }
-                    NotificationSource::Data => self
-                        .pending
-                        .push_data(&notification.value)
-                        .map_err(map_reassembly_error)?,
-                    NotificationSource::LastData => {
-                        let _ = self
-                            .pending
-                            .push_last_data(&notification.value)
-                            .map_err(map_reassembly_error)?;
-                    }
-                },
+                }
             }
         }
     }
@@ -106,11 +181,73 @@ impl VeSmartBleSession {
         instance: u16,
         deadline: Instant,
     ) -> Result<Vec<u8>, BleError> {
+        let started_at = Instant::now();
+        let mut counts = NotificationCounts::default();
+        let mut unrelated_payloads = 0u32;
         loop {
-            let payload = self.next_payload(deadline).await?;
-            if payload_has_values(&payload, instance)? {
+            let payload = match self.next_payload(deadline, &mut counts).await {
+                Ok(payload) => payload,
+                Err(error) => {
+                    tracing::debug!(
+                        operation = "get-values-response",
+                        instance,
+                        notifications = counts.total(),
+                        control_notifications = counts.control,
+                        data_notifications = counts.data,
+                        last_data_notifications = counts.last_data,
+                        clear_buffer_notifications = counts.clear_buffer,
+                        completed_payloads = counts.completed_payloads,
+                        unrelated_payloads,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        error = %error,
+                        "failed while waiting for correlated value response"
+                    );
+                    return Err(error);
+                }
+            };
+            let correlated = match payload_has_values(&payload, instance) {
+                Ok(correlated) => correlated,
+                Err(error) => {
+                    tracing::debug!(
+                        operation = "get-values-response",
+                        instance,
+                        notifications = counts.total(),
+                        completed_payloads = counts.completed_payloads,
+                        unrelated_payloads,
+                        payload_bytes = payload.len(),
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        error = %error,
+                        "received malformed completed BLE payload"
+                    );
+                    return Err(error);
+                }
+            };
+            if correlated {
+                tracing::debug!(
+                    operation = "get-values-response",
+                    instance,
+                    notifications = counts.total(),
+                    control_notifications = counts.control,
+                    data_notifications = counts.data,
+                    last_data_notifications = counts.last_data,
+                    clear_buffer_notifications = counts.clear_buffer,
+                    completed_payloads = counts.completed_payloads,
+                    unrelated_payloads,
+                    response_bytes = payload.len(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "received correlated value response"
+                );
                 return Ok(payload);
             }
+            unrelated_payloads = unrelated_payloads.saturating_add(1);
+            tracing::trace!(
+                operation = "get-values-response",
+                instance,
+                completed_payloads = counts.completed_payloads,
+                unrelated_payloads,
+                payload_bytes = payload.len(),
+                "ignored uncorrelated completed BLE payload"
+            );
             // Subscribe acknowledgements, keepalives, and stale push frames
             // are valid traffic but are not the response to this getValues.
         }
@@ -195,7 +332,12 @@ impl BleSession for VeSmartBleSession {
 
 fn map_transport_error(error: TransportError) -> BleError {
     match error.class() {
-        BleErrorClass::Timeout => BleError::Timeout,
+        BleErrorClass::Timeout => match error {
+            TransportError::Timeout { operation } => BleError::Timeout { operation },
+            _ => BleError::Timeout {
+                operation: "transport",
+            },
+        },
         BleErrorClass::Auth => BleError::Authentication,
         BleErrorClass::Contention => BleError::Contention,
         BleErrorClass::NotFound => BleError::NotFound,
@@ -218,17 +360,17 @@ fn payload_has_values(payload: &[u8], instance: u16) -> Result<bool, BleError> {
     }))
 }
 
-fn map_protocol_error(error: victron_protocol::ProtocolError) -> BleError {
-    BleError::Other(error.to_string())
+fn map_protocol_error(_error: victron_protocol::ProtocolError) -> BleError {
+    BleError::Other("protocol decode failed".into())
 }
 
-fn map_reassembly_error(error: victron_protocol::ReassemblyError) -> BleError {
-    BleError::Other(error.to_string())
+fn map_reassembly_error(_error: victron_protocol::ReassemblyError) -> BleError {
+    BleError::Other("response reassembly failed".into())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::payload_has_values;
+    use super::{map_protocol_error, map_transport_error, payload_has_values};
 
     #[test]
     fn subscribe_ack_is_not_a_get_values_response() {
@@ -247,5 +389,27 @@ mod tests {
     fn keepalive_for_instance_zero_is_not_correlated() {
         let keepalive = [0x08, 0x00, 0x18, 0x93, 0x42, 0x10, 0x27];
         assert!(!payload_has_values(&keepalive, 3).unwrap());
+    }
+
+    #[test]
+    fn transport_timeout_operation_survives_service_mapping() {
+        let error = map_transport_error(victron_bluez::BleError::Timeout {
+            operation: "notification",
+        });
+        assert_eq!(
+            error,
+            victron_service::BleError::Timeout {
+                operation: "notification"
+            }
+        );
+        assert_eq!(error.to_string(), "timeout: notification");
+    }
+
+    #[test]
+    fn protocol_errors_are_bounded_and_payload_free() {
+        let raw = "wire-secret-marker";
+        let error = map_protocol_error(victron_protocol::ProtocolError::Malformed(raw));
+        assert_eq!(error.to_string(), "protocol decode failed");
+        assert!(!error.to_string().contains(raw));
     }
 }

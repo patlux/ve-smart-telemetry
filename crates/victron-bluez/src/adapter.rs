@@ -87,9 +87,10 @@ pub async fn ensure_powered(
             adapter: adapter.name().to_string(),
         }),
         PowerPolicy::EnableIfOff => {
-            log::warn!(
-                "adapter '{}' is powered off; enabling it — this is a broad host policy change",
-                adapter.name()
+            tracing::warn!(
+                operation = "adapter-set-powered",
+                adapter = %adapter.name(),
+                "Bluetooth adapter is powered off; enabling it changes host policy"
             );
             bounded("adapter-set-powered", op_timeout, async {
                 adapter.set_powered(true).await.map_err(|e| from_bluer(&e))

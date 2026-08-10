@@ -110,7 +110,11 @@ pub async fn locate(device: &Device, op_timeout: Duration) -> Result<VeSmartGatt
         let Some(variant) = spec::service_variant(&service_uuid) else {
             continue;
         };
-        log::info!("located VE.Smart service variant {}", variant_name(variant));
+        tracing::debug!(
+            operation = "gatt-discovery",
+            service_variant = variant_name(variant),
+            "located VE.Smart service"
+        );
 
         let mut found: [Option<Characteristic>; 3] = [None, None, None];
         let mut write_modes: [WriteMode; 3] = [WriteMode::WriteWithoutResponse; 3];
@@ -132,9 +136,10 @@ pub async fn locate(device: &Device, op_timeout: Duration) -> Result<VeSmartGatt
             .await?;
             validate_flags(&flags, role)?;
             write_modes[role.index() as usize - 1] = pick_write_mode(&flags, role)?;
-            log::debug!(
-                "found characteristic {} (notify/indicate + per-role read/write support)",
-                role.name()
+            tracing::debug!(
+                operation = "gatt-discovery",
+                characteristic_role = role.name(),
+                "located required VE.Smart characteristic"
             );
             found[role.index() as usize - 1] = Some(characteristic);
         }
