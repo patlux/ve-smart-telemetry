@@ -5,8 +5,14 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use victron_bluez::{BleError as TransportError, BleErrorClass, BleTransport, NotificationSource};
 use victron_protocol::control::{ControlInfo, ControlMessage};
-use victron_protocol::{OutboundTarget, Reassembler, Response};
+use victron_protocol::{OutboundTarget, Reassembler};
 use victron_service::{BleError, BleSession};
+
+use super::ble_flow::{
+    map_protocol_error, map_reassembly_error, payload_has_values, ReceiveCredit,
+};
+const SUBSCRIBE_DRAIN_QUIET: Duration = Duration::from_millis(500);
+const SUBSCRIBE_DRAIN_BUDGET: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Default)]
 struct NotificationCounts {
@@ -31,6 +37,8 @@ pub struct VeSmartBleSession {
     negotiated: bool,
     subscribed_instance: Option<u16>,
     pending: Reassembler,
+    receive_credit: ReceiveCredit,
+    fallback_values: Option<Vec<u8>>,
 }
 
 impl VeSmartBleSession {
@@ -41,6 +49,8 @@ impl VeSmartBleSession {
             negotiated: false,
             subscribed_instance: None,
             pending: Reassembler::new(),
+            receive_credit: ReceiveCredit::default(),
+            fallback_values: None,
         }
     }
 
@@ -51,6 +61,24 @@ impl VeSmartBleSession {
                 OutboundTarget::LastData => self.transport.write_last_data(&chunk.bytes).await,
             }
             .map_err(map_transport_error)?;
+        }
+        Ok(())
+    }
+
+    async fn replenish_receive_credit(
+        &mut self,
+        source: NotificationSource,
+    ) -> Result<(), BleError> {
+        if let Some(credit) = self.receive_credit.record(source) {
+            self.transport
+                .write_control(&credit)
+                .await
+                .map_err(map_transport_error)?;
+            tracing::debug!(
+                operation = "receive-credit",
+                credited_chunks = credit[1],
+                "replenished BLE receive credit"
+            );
         }
         Ok(())
     }
@@ -85,6 +113,7 @@ impl VeSmartBleSession {
                     }
                 })?
                 .map_err(map_transport_error)?;
+            self.replenish_receive_credit(notification.source).await?;
             match notification.source {
                 NotificationSource::Control => {
                     counts.control = counts.control.saturating_add(1);
@@ -118,18 +147,37 @@ impl VeSmartBleSession {
         }
     }
 
-    async fn drain_completed_payloads(&mut self, quiet: Duration) -> Result<(), BleError> {
+    async fn drain_completed_payloads(&mut self, instance: u16) -> Result<(), BleError> {
         self.pending.clear();
+        self.fallback_values = None;
+        let started_at = Instant::now();
+        let deadline = started_at + SUBSCRIBE_DRAIN_BUDGET;
         let mut notifications = 0u32;
         let mut completed_payloads = 0u32;
+        let mut correlated_payloads = 0u32;
         loop {
-            match tokio::time::timeout(quiet, self.transport.next_notification()).await {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                tracing::debug!(
+                    operation = "subscribe-drain",
+                    outcome = "budget",
+                    notifications,
+                    completed_payloads,
+                    correlated_payloads,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "subscribe notification drain reached total budget"
+                );
+                return Ok(());
+            };
+            let wait = remaining.min(SUBSCRIBE_DRAIN_QUIET);
+            match tokio::time::timeout(wait, self.transport.next_notification()).await {
                 Err(_) => {
                     tracing::debug!(
                         operation = "subscribe-drain",
+                        outcome = "quiet",
                         notifications,
                         completed_payloads,
-                        quiet_ms = quiet.as_millis() as u64,
+                        correlated_payloads,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
                         "subscribe notification queue reached quiet period"
                     );
                     return Ok(());
@@ -137,15 +185,18 @@ impl VeSmartBleSession {
                 Ok(Err(TransportError::Timeout { .. })) => {
                     tracing::debug!(
                         operation = "subscribe-drain",
+                        outcome = "transport-quiet",
                         notifications,
                         completed_payloads,
-                        quiet_ms = quiet.as_millis() as u64,
+                        correlated_payloads,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
                         "subscribe notification queue reached transport quiet period"
                     );
                     return Ok(());
                 }
                 Ok(Err(error)) => return Err(map_transport_error(error)),
                 Ok(Ok(notification)) => {
+                    self.replenish_receive_credit(notification.source).await?;
                     notifications = notifications.saturating_add(1);
                     match notification.source {
                         NotificationSource::Control => {
@@ -161,13 +212,16 @@ impl VeSmartBleSession {
                             .push_data(&notification.value)
                             .map_err(map_reassembly_error)?,
                         NotificationSource::LastData => {
-                            if self
+                            if let Some(payload) = self
                                 .pending
                                 .push_last_data(&notification.value)
                                 .map_err(map_reassembly_error)?
-                                .is_some()
                             {
                                 completed_payloads = completed_payloads.saturating_add(1);
+                                if payload_has_values(&payload, instance).unwrap_or(false) {
+                                    correlated_payloads = correlated_payloads.saturating_add(1);
+                                    self.fallback_values = Some(payload);
+                                }
                             }
                         }
                     }
@@ -300,8 +354,7 @@ impl BleSession for VeSmartBleSession {
         // queue as getValues. Consume them until a short quiet period so the
         // following request cannot mistake a stale subscribe frame for its
         // response (the proven Python reader waits here for the same reason).
-        self.drain_completed_payloads(Duration::from_millis(500))
-            .await?;
+        self.drain_completed_payloads(instance).await?;
         self.subscribed_instance = Some(instance);
         Ok(())
     }
@@ -314,10 +367,41 @@ impl BleSession for VeSmartBleSession {
         let instance = self
             .subscribed_instance
             .ok_or_else(|| BleError::Other("device is not subscribed".into()))?;
-        self.pending.clear();
-        self.write_request(payload).await?;
-        self.wait_for_values(instance, Instant::now() + timeout)
-            .await
+        for attempt in 1..=2u8 {
+            self.pending.clear();
+            self.write_request(payload).await?;
+            match self
+                .wait_for_values(instance, Instant::now() + timeout)
+                .await
+            {
+                Ok(values) => return Ok(values),
+                Err(error) => {
+                    if let Some(values) = self.fallback_values.take() {
+                        tracing::debug!(
+                            operation = "get-values-fallback",
+                            instance,
+                            response_bytes = values.len(),
+                            error_kind = error.kind(),
+                            "using correlated subscription values after explicit request failure"
+                        );
+                        return Ok(values);
+                    }
+                    if attempt == 1 && matches!(error, BleError::Timeout { .. }) {
+                        tracing::debug!(
+                            operation = "get-values-retry",
+                            instance,
+                            attempt,
+                            error_kind = error.kind(),
+                            "retrying read-only getValues after response timeout"
+                        );
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        unreachable!("bounded getValues attempts always return")
     }
 
     async fn disconnect(&mut self) -> Result<(), BleError> {
@@ -326,6 +410,8 @@ impl BleSession for VeSmartBleSession {
         self.negotiated = false;
         self.subscribed_instance = None;
         self.pending.clear();
+        self.receive_credit.clear();
+        self.fallback_values = None;
         Ok(())
     }
 }
@@ -349,47 +435,9 @@ fn map_transport_error(error: TransportError) -> BleError {
     }
 }
 
-fn payload_has_values(payload: &[u8], instance: u16) -> Result<bool, BleError> {
-    let responses = Response::parse_stream(payload).map_err(map_protocol_error)?;
-    Ok(responses.iter().any(|response| {
-        matches!(
-            response,
-            Response::Value { instance: response_instance, .. }
-                if *response_instance == u64::from(instance)
-        )
-    }))
-}
-
-fn map_protocol_error(_error: victron_protocol::ProtocolError) -> BleError {
-    BleError::Other("protocol decode failed".into())
-}
-
-fn map_reassembly_error(_error: victron_protocol::ReassemblyError) -> BleError {
-    BleError::Other("response reassembly failed".into())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{map_protocol_error, map_transport_error, payload_has_values};
-
-    #[test]
-    fn subscribe_ack_is_not_a_get_values_response() {
-        // Response(instance=3, request opcode=Subscribe/3, code=Ok).
-        assert!(!payload_has_values(&[0x07, 0x03, 0x03, 0x00], 3).unwrap());
-    }
-
-    #[test]
-    fn value_for_requested_instance_is_correlated() {
-        let value = [0x08, 0x03, 0x19, 0xed, 0xbb, 0x42, 0xf3, 0x0a];
-        assert!(payload_has_values(&value, 3).unwrap());
-        assert!(!payload_has_values(&value, 1).unwrap());
-    }
-
-    #[test]
-    fn keepalive_for_instance_zero_is_not_correlated() {
-        let keepalive = [0x08, 0x00, 0x18, 0x93, 0x42, 0x10, 0x27];
-        assert!(!payload_has_values(&keepalive, 3).unwrap());
-    }
+    use super::map_transport_error;
 
     #[test]
     fn transport_timeout_operation_survives_service_mapping() {
@@ -403,13 +451,5 @@ mod tests {
             }
         );
         assert_eq!(error.to_string(), "timeout: notification");
-    }
-
-    #[test]
-    fn protocol_errors_are_bounded_and_payload_free() {
-        let raw = "wire-secret-marker";
-        let error = map_protocol_error(victron_protocol::ProtocolError::Malformed(raw));
-        assert_eq!(error.to_string(), "protocol decode failed");
-        assert!(!error.to_string().contains(raw));
     }
 }
