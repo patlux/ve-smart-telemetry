@@ -1,0 +1,19 @@
+[package]
+name = "victron-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared read-only VE.Smart BLE session client"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+victron-bluez = { path = "../victron-bluez" }
+victron-protocol = { path = "../victron-protocol" }
+victron-service = { path = "../victron-service" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

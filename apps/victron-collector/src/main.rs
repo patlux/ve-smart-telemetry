@@ -170,7 +170,7 @@ async fn run_daemon(cli: Cli) -> Result<u8, DaemonError> {
         write_chunk_size: victron_protocol::control::MIN_ATT_CHUNK_SIZE,
         require_advertisement_evidence: false,
     };
-    let ble = adapters::ble::VeSmartBleSession::new(ble_config);
+    let ble = victron_client::VeSmartBleSession::new(ble_config);
     let protocol = adapters::protocol::VeSmartProtocol::new(
         victron_domain::DeviceId::new(&cfg.device.name).map_err(|error| {
             DaemonError::Config(config::ConfigError::DeviceIdentity(error.to_string()))

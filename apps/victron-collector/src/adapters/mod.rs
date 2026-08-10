@@ -11,8 +11,6 @@
 //! `clock.rs` and `scheduler.rs` are already fully concrete (no sibling
 //! dependency needed).
 
-pub mod ble;
-mod ble_flow;
 pub mod clock;
 pub mod delivery;
 pub mod protocol;

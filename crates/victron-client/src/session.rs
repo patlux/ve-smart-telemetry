@@ -8,9 +8,7 @@ use victron_protocol::control::{ControlInfo, ControlMessage};
 use victron_protocol::{OutboundTarget, Reassembler};
 use victron_service::{BleError, BleSession};
 
-use super::ble_flow::{
-    map_protocol_error, map_reassembly_error, payload_has_values, ReceiveCredit,
-};
+use crate::flow::{map_protocol_error, map_reassembly_error, payload_has_values, ReceiveCredit};
 const SUBSCRIBE_DRAIN_QUIET: Duration = Duration::from_millis(500);
 const SUBSCRIBE_DRAIN_BUDGET: Duration = Duration::from_secs(2);
 
@@ -310,6 +308,8 @@ impl VeSmartBleSession {
     }
 }
 
+mod diagnostic;
+
 #[async_trait(?Send)]
 impl BleSession for VeSmartBleSession {
     async fn discover(&mut self) -> Result<(), BleError> {
@@ -376,7 +376,7 @@ impl BleSession for VeSmartBleSession {
         // Subscribe produces acknowledgements/push notifications on the same
         // queue as getValues. Consume them until a short quiet period so the
         // following request cannot mistake a stale subscribe frame for its
-        // response (the proven Python reader waits here for the same reason).
+        // response (the proven prototype waited here for the same reason).
         self.drain_completed_payloads(instance).await?;
         self.subscribed_instance = Some(instance);
         Ok(())

@@ -22,6 +22,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 victron-bluez = { path = "../../crates/victron-bluez" }
+victron-client = { path = "../../crates/victron-client" }
 victron-domain = { path = "../../crates/victron-domain" }
 victron-metrics = { path = "../../crates/victron-metrics", features = ["domain"] }
 victron-protocol = { path = "../../crates/victron-protocol" }

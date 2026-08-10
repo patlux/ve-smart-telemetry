@@ -1133,6 +1133,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "victron-client"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tokio",
+ "tracing",
+ "victron-bluez",
+ "victron-protocol",
+ "victron-service",
+]
+
+[[package]]
 name = "victron-collector"
 version = "0.1.0"
 dependencies = [
@@ -1146,6 +1158,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "victron-bluez",
+ "victron-client",
  "victron-domain",
  "victron-metrics",
  "victron-protocol",
