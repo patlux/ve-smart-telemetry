@@ -14,7 +14,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use tokio::sync::watch;
 use victron_domain::{ConnectionHealth, Sample};
@@ -65,6 +65,37 @@ pub enum CycleError {
     /// swallowed in release builds.
     #[error("internal state failure: {0}")]
     State(StateTransitionError),
+}
+
+impl CycleError {
+    /// Stable, payload- and backend-message-free classification for logs.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            CycleError::Discover(error)
+            | CycleError::Connect(error)
+            | CycleError::Negotiate(error)
+            | CycleError::Subscribe(error)
+            | CycleError::Request(error)
+            | CycleError::Disconnect(error) => error.kind(),
+            CycleError::Plan(_) | CycleError::Parse(_) => "protocol",
+            CycleError::Persist(error) => error.kind(),
+            CycleError::Render(_) => "render",
+            CycleError::State(_) => "state",
+        }
+    }
+
+    /// Bounded operation label for BLE timeouts.
+    pub fn operation(&self) -> Option<&'static str> {
+        match self {
+            CycleError::Discover(error)
+            | CycleError::Connect(error)
+            | CycleError::Negotiate(error)
+            | CycleError::Subscribe(error)
+            | CycleError::Request(error)
+            | CycleError::Disconnect(error) => error.operation(),
+            _ => None,
+        }
+    }
 }
 
 /// Outcome of one cycle.
@@ -248,14 +279,22 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
     let device = ctx.config.device();
 
     goto_phase(ctx, CyclePhase::Discovering)?;
-    phase(ctx.config.phase_timeout, ctx.ports.ble.discover())
-        .await
-        .map_err(|e| (CyclePhase::Discovering, CycleError::Discover(e)))?;
+    phase(
+        CyclePhase::Discovering,
+        ctx.config.phase_timeout,
+        ctx.ports.ble.discover(),
+    )
+    .await
+    .map_err(|e| (CyclePhase::Discovering, CycleError::Discover(e)))?;
 
     goto_phase(ctx, CyclePhase::Connecting)?;
-    phase(ctx.config.phase_timeout, ctx.ports.ble.connect())
-        .await
-        .map_err(|e| (CyclePhase::Connecting, CycleError::Connect(e)))?;
+    phase(
+        CyclePhase::Connecting,
+        ctx.config.phase_timeout,
+        ctx.ports.ble.connect(),
+    )
+    .await
+    .map_err(|e| (CyclePhase::Connecting, CycleError::Connect(e)))?;
 
     goto_phase(ctx, CyclePhase::Negotiating)?;
     let plan = ctx
@@ -264,6 +303,7 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
         .acquire_plan(ctx.config.instance, ctx.ports.protocol.vregs())
         .map_err(|e| (CyclePhase::Negotiating, CycleError::Plan(e)))?;
     phase(
+        CyclePhase::Negotiating,
         ctx.config.phase_timeout,
         ctx.ports.ble.negotiate(&plan.negotiation_frames),
     )
@@ -272,6 +312,7 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
 
     goto_phase(ctx, CyclePhase::Subscribing)?;
     phase(
+        CyclePhase::Subscribing,
         ctx.config.phase_timeout,
         ctx.ports
             .ble
@@ -282,6 +323,7 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
 
     goto_phase(ctx, CyclePhase::Requesting)?;
     let raw = phase(
+        CyclePhase::Requesting,
         ctx.config.phase_timeout,
         ctx.ports
             .ble
@@ -429,9 +471,13 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
     }
 
     goto_phase(ctx, CyclePhase::Disconnecting)?;
-    phase(ctx.config.phase_timeout, ctx.ports.ble.disconnect())
-        .await
-        .map_err(|e| (CyclePhase::Disconnecting, CycleError::Disconnect(e)))?;
+    phase(
+        CyclePhase::Disconnecting,
+        ctx.config.phase_timeout,
+        ctx.ports.ble.disconnect(),
+    )
+    .await
+    .map_err(|e| (CyclePhase::Disconnecting, CycleError::Disconnect(e)))?;
 
     goto_phase(ctx, CyclePhase::Idle)?;
     Ok(Step::Done(CycleResult {
@@ -446,10 +492,32 @@ async fn cycle_states(ctx: &mut CycleContext) -> CycleStepResult {
 
 /// Wrap one BLE phase with the hard outer timeout.
 async fn phase<T>(
+    phase: CyclePhase,
     timeout: Duration,
     future: impl Future<Output = Result<T, BleError>>,
 ) -> Result<T, BleError> {
-    tokio::time::timeout(timeout, future)
-        .await
-        .map_err(|_| BleError::Timeout)?
+    let started_at = Instant::now();
+    match tokio::time::timeout(timeout, future).await {
+        Ok(result) => {
+            tracing::debug!(
+                phase = phase.as_str(),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                outcome = if result.is_ok() { "ok" } else { "error" },
+                "acquisition phase completed"
+            );
+            result
+        }
+        Err(_) => {
+            tracing::debug!(
+                phase = phase.as_str(),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                timeout_ms = timeout.as_millis() as u64,
+                outcome = "timeout",
+                "acquisition phase exceeded outer deadline"
+            );
+            Err(BleError::Timeout {
+                operation: "service-phase",
+            })
+        }
+    }
 }

@@ -218,8 +218,11 @@ fn map_error(error: victron_storage::StorageError) -> StorageError {
             format!("database schema {found} is newer than supported {supported}"),
         ),
         victron_storage::StorageError::EnergyAnchorConflict => StorageError::EnergyAnchorConflict,
-        victron_storage::StorageError::Inconsistent(message) => {
-            tracing::error!(error = %message, "SQLite consistency check failed");
+        victron_storage::StorageError::Inconsistent(_) => {
+            tracing::error!(
+                error_class = "inconsistent",
+                "SQLite consistency check failed"
+            );
             StorageError::Corrupt
         }
         victron_storage::StorageError::Sqlite(error) => StorageError::Io(error.to_string()),

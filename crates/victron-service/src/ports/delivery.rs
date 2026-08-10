@@ -81,6 +81,26 @@ pub enum DeliveryError {
 }
 
 impl DeliveryError {
+    /// Stable, response-body-free classification for structured logs.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            DeliveryError::Transport(_) => "transport",
+            DeliveryError::Timeout => "timeout",
+            DeliveryError::Http { .. } => "http",
+            DeliveryError::MalformedResponse(_) => "malformed_response",
+            DeliveryError::Rejected(_) => "rejected",
+            DeliveryError::NotWired(_) => "not_wired",
+        }
+    }
+
+    /// HTTP status when the peer returned one.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            DeliveryError::Http { status } => Some(*status),
+            _ => None,
+        }
+    }
+
     /// Retry classification aligned with `victron-metrics::Outcome`:
     /// network/timeout/malformed-response/408/429/5xx retry; other 4xx and
     /// configuration errors are permanent.

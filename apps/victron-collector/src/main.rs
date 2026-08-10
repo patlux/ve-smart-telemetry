@@ -68,11 +68,18 @@ struct Cli {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Err(error) = logging::init(&cli.log_level) {
+        // Logging cannot report its own initialization failure. stderr is
+        // still captured by systemd/journald and by diagnostic CLI callers.
+        eprintln!("victron-collector: logging setup error: {error}");
+        return ExitCode::from(exit::RUNTIME);
+    }
     match run_daemon(cli).await {
         Ok(code) => ExitCode::from(code),
-        Err(err) => {
-            eprintln!("victron-collector: {err}");
-            ExitCode::from(err.exit_code())
+        Err(error) => {
+            let exit_code = error.exit_code();
+            tracing::error!(%error, exit_code, "collector terminated");
+            ExitCode::from(exit_code)
         }
     }
 }
@@ -124,7 +131,6 @@ impl std::fmt::Display for DaemonError {
 
 async fn run_daemon(cli: Cli) -> Result<u8, DaemonError> {
     let cfg = config::Config::load(&cli.config).map_err(DaemonError::Config)?;
-    logging::init(&cli.log_level);
 
     if cli.check_config {
         println!(
@@ -215,11 +221,11 @@ async fn run_daemon(cli: Cli) -> Result<u8, DaemonError> {
 
     tracing::info!(
         device = %service_config.device_name,
+        instance = service_config.instance,
         adapter = %cfg.device.adapter,
-        bluez_alias = %cfg.device.bluez_alias,
-        storage_path = %cfg.storage.path.display(),
-        victoria_url = %cfg.victoria_metrics.url,
-        "starting concrete read-only Victron collector adapters"
+        phase_timeout_ms = service_config.phase_timeout.as_millis() as u64,
+        response_timeout_ms = service_config.response_timeout.as_millis() as u64,
+        "starting VE.Smart Telemetry collector"
     );
 
     if cli.run_once {

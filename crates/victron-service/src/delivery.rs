@@ -55,6 +55,11 @@ pub async fn deliver_claim(ctx: &mut CycleContext, claim: ClaimedBatch) -> Deliv
         Ok(()) => match ctx.ports.storage.spool_complete(&claim).await {
             Ok(()) => {
                 ctx.health.record_delivery(true);
+                tracing::debug!(
+                    attempt = claim.attempts,
+                    payload_bytes = claim.payload.len(),
+                    "spool batch delivered and completed"
+                );
                 DeliveryStatus::Delivered
             }
             Err(e) => {
@@ -77,10 +82,20 @@ pub async fn deliver_claim(ctx: &mut CycleContext, claim: ClaimedBatch) -> Deliv
                     // exhausted.
                     match ctx.ports.storage.spool_retry(&claim, ctx.clock.now()).await {
                         Ok(RetryOutcome::Retried { attempts }) => {
+                            tracing::debug!(
+                                attempts,
+                                payload_bytes = claim.payload.len(),
+                                "retryable delivery failure re-queued spool batch"
+                            );
                             DeliveryStatus::Queued { attempts }
                         }
                         Ok(RetryOutcome::Dropped { attempts }) => {
                             ctx.health.record_spool_dropped();
+                            tracing::warn!(
+                                attempts,
+                                payload_bytes = claim.payload.len(),
+                                "delivery retry budget exhausted; dropped spool batch"
+                            );
                             DeliveryStatus::Dropped { attempts }
                         }
                         Err(e2) => DeliveryStatus::Failed(e2),
@@ -88,7 +103,11 @@ pub async fn deliver_claim(ctx: &mut CycleContext, claim: ClaimedBatch) -> Deliv
                 }
             } else {
                 // Permanent rejection: dropping bounds the spool.
-                tracing::warn!(error = ?e, "permanent delivery failure; dropping batch");
+                tracing::warn!(
+                    error_kind = e.kind(),
+                    http_status = e.status().unwrap_or(0),
+                    "permanent delivery failure; dropping batch"
+                );
                 drop_claim(ctx, &claim).await
             }
         }
@@ -101,6 +120,11 @@ async fn drop_claim(ctx: &mut CycleContext, claim: &ClaimedBatch) -> DeliverySta
     match ctx.ports.storage.spool_drop(claim).await {
         Ok(()) => {
             ctx.health.record_spool_dropped();
+            tracing::warn!(
+                attempts = claim.attempts,
+                payload_bytes = claim.payload.len(),
+                "dropped spool batch"
+            );
             DeliveryStatus::Dropped {
                 attempts: claim.attempts,
             }

@@ -140,6 +140,22 @@ pub enum StorageError {
     NotWired(&'static str),
 }
 
+impl StorageError {
+    /// Stable, SQLite-message-free classification for structured logs.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            StorageError::Open(_) => "open",
+            StorageError::Io(_) => "io",
+            StorageError::Schema(_) => "schema",
+            StorageError::Corrupt => "corrupt",
+            StorageError::Poisoned => "poisoned",
+            StorageError::InvalidTimestamp(_) => "invalid_timestamp",
+            StorageError::EnergyAnchorConflict => "energy_anchor_conflict",
+            StorageError::NotWired(_) => "not_wired",
+        }
+    }
+}
+
 /// Durable state + bounded delivery spool.
 #[async_trait]
 pub trait StoragePort: Send {

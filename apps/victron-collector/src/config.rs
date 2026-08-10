@@ -88,8 +88,7 @@ impl Config {
 
     /// Load and validate from a file.
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::Read(path.display().to_string(), e.to_string()))?;
+        let text = std::fs::read_to_string(path).map_err(|_| ConfigError::Read)?;
         Self::from_toml(&text)
     }
 
@@ -225,10 +224,10 @@ fn is_valid_path(path: &str) -> bool {
 /// Configuration error with a fixed exit-code mapping (2 = usage/config).
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("failed to read config {0}: {1}")]
-    Read(String, String),
-    #[error("invalid TOML: {0}")]
-    Toml(toml::de::Error),
+    #[error("failed to read configuration file")]
+    Read,
+    #[error("invalid TOML configuration")]
+    Toml(#[source] toml::de::Error),
     #[error("device name must not be empty")]
     EmptyDeviceName,
     #[error("instance 0 is the keep-alive pseudo-instance and is not supported")]
@@ -297,11 +296,15 @@ maximum_spool_age_days = 7
     #[test]
     fn rejects_unknown_fields() {
         // A PIN key must not silently slip through: no secrets in config.
-        let text = VALID.replace("adapter = \"hci0\"", "adapter = \"hci0\"\npin = \"1234\"");
-        assert!(matches!(
-            Config::from_toml(&text),
-            Err(ConfigError::Toml(_))
-        ));
+        let secret = "do-not-log-this-pin";
+        let text = VALID.replace(
+            "adapter = \"hci0\"",
+            &format!("adapter = \"hci0\"\npin = \"{secret}\""),
+        );
+        let error = Config::from_toml(&text).unwrap_err();
+        assert!(matches!(error, ConfigError::Toml(_)));
+        assert_eq!(error.to_string(), "invalid TOML configuration");
+        assert!(!error.to_string().contains(secret));
     }
 
     #[test]

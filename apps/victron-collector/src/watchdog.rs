@@ -27,6 +27,7 @@ struct Progress {
 #[derive(Debug)]
 pub struct ProgressObserver {
     progress: Mutex<Progress>,
+    transition: Mutex<(CyclePhase, Instant)>,
     phase_timeout: Duration,
     maximum_idle: Duration,
     delivery_timeout: Duration,
@@ -44,6 +45,7 @@ impl ProgressObserver {
                 entered_at: Instant::now(),
                 budget: maximum_idle,
             }),
+            transition: Mutex::new((CyclePhase::Idle, Instant::now())),
             phase_timeout,
             maximum_idle,
             delivery_timeout,
@@ -75,6 +77,17 @@ impl ProgressObserver {
 
 impl PhaseObserver for ProgressObserver {
     fn on_phase(&self, phase: CyclePhase) {
+        let now = Instant::now();
+        let mut transition = self.transition.lock().unwrap();
+        let (previous_phase, entered_at) = *transition;
+        tracing::debug!(
+            previous_phase = previous_phase.as_str(),
+            phase = phase.as_str(),
+            previous_elapsed_ms = now.duration_since(entered_at).as_millis() as u64,
+            "collector phase transition"
+        );
+        *transition = (phase, now);
+        drop(transition);
         self.on_progress(phase);
     }
 
@@ -217,5 +230,22 @@ mod tests {
         );
         observer.on_phase(CyclePhase::ShuttingDown);
         assert_eq!(observer.healthy_progress(Instant::now()), None);
+    }
+
+    #[test]
+    fn logging_transition_tracking_does_not_change_progress_budget() {
+        let observer = ProgressObserver::new(
+            Duration::from_secs(120),
+            Duration::from_secs(365),
+            Duration::from_secs(10),
+        );
+        observer.on_phase(CyclePhase::Requesting);
+        let progress = *observer.progress.lock().unwrap();
+        assert_eq!(progress.phase, CyclePhase::Requesting);
+        assert_eq!(progress.budget, Duration::from_secs(120));
+        assert_eq!(
+            observer.transition.lock().unwrap().0,
+            CyclePhase::Requesting
+        );
     }
 }

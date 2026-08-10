@@ -12,7 +12,10 @@
 //! An illegal state transition is a typed [`RunError`], never silently
 //! swallowed in release builds.
 
+use std::time::Instant;
+
 use tokio::sync::watch;
+use tracing::Instrument;
 
 use crate::cycle::{run_cycle, shutdown_requested, CycleContext, CycleOutcome};
 use crate::delivery::drain_spool;
@@ -50,8 +53,11 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
     loop {
         ctx.observer.on_progress(ctx.state.current());
         match drain_spool(&mut ctx).await {
-            crate::delivery::DrainResult::Error(e) => {
-                tracing::error!(error = ?e, "spool drain failed; continuing to poll");
+            crate::delivery::DrainResult::Error(error) => {
+                tracing::error!(
+                    error_kind = error.kind(),
+                    "spool drain failed; continuing to poll"
+                );
             }
             crate::delivery::DrainResult::Delivered(n) => {
                 tracing::info!(delivered = n, "spool drained");
@@ -87,7 +93,16 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
                 IntervalKind::Active => ctx.config.active_interval,
                 IntervalKind::Idle => ctx.config.idle_interval,
             };
-            let wait = base.saturating_add(ctx.backoff.delay(consecutive_failures));
+            let backoff = ctx.backoff.delay(consecutive_failures);
+            let wait = base.saturating_add(backoff);
+            tracing::debug!(
+                interval_kind = ?kind,
+                base_interval_ms = base.as_millis() as u64,
+                backoff_ms = backoff.as_millis() as u64,
+                wait_ms = wait.as_millis() as u64,
+                consecutive_failures,
+                "scheduled next acquisition cycle"
+            );
             if !wait.is_zero() {
                 tokio::select! {
                     _ = tokio::time::sleep(wait) => {}
@@ -101,7 +116,16 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
             }
         }
 
-        let outcome = run_cycle(&mut ctx).await;
+        let cycle_id = cycles.saturating_add(1);
+        let cycle_started_at = Instant::now();
+        let span = tracing::info_span!(
+            "acquisition_cycle",
+            cycle_id,
+            device = %ctx.config.device_name,
+            instance = ctx.config.instance
+        );
+        let outcome = run_cycle(&mut ctx).instrument(span).await;
+        let elapsed_ms = cycle_started_at.elapsed().as_millis() as u64;
         cycles += 1;
         match outcome {
             CycleOutcome::Success(result) => {
@@ -113,7 +137,9 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
                 ctx.health.record_cycle(true);
                 ctx.health.set_last_success(result.sample.observed_at());
                 tracing::info!(
+                    cycle_id,
                     device = %result.device.name(),
+                    elapsed_ms,
                     energy_kind = ?result.energy.kind,
                     duplicate = result.duplicate,
                     delivery = ?result.delivery,
@@ -123,18 +149,27 @@ pub async fn run(mut ctx: CycleContext) -> Result<RunSummary, RunError> {
             CycleOutcome::Failure { phase, error } => {
                 ctx.health.record_cycle(false);
                 tracing::warn!(
+                    cycle_id,
                     device = %ctx.config.device_name,
+                    elapsed_ms,
                     phase = %phase.as_str(),
-                    error = ?error,
+                    error_kind = error.kind(),
+                    operation = error.operation().unwrap_or("none"),
                     "acquisition cycle failed"
                 );
             }
-            CycleOutcome::ShutdownGraceful { sample, .. } => {
+            CycleOutcome::ShutdownGraceful { phase, sample } => {
                 // The acquisition completed and was durably persisted before
                 // shutdown; count it as a successful acquisition.
                 cycles_succeeded += 1;
                 ctx.health.record_cycle(true);
                 ctx.health.set_last_success(sample.observed_at());
+                tracing::info!(
+                    cycle_id,
+                    elapsed_ms,
+                    phase = %phase.as_str(),
+                    "acquisition persisted before graceful shutdown"
+                );
                 graceful = true;
                 break;
             }
