@@ -19,7 +19,9 @@ progress-aware systemd watchdog.
 - pushes Prometheus text to VictoriaMetrics without opening an inbound port
 - runs under systemd with READY notification and progress-aware watchdog
 - produces ARMv6/Thumb-1/VFPv2 hard-float binaries for Raspberry Pi Zero W
-- includes diagnostic CLI, deployment scripts and sanitized protocol fixtures
+- includes a Python-free diagnostic CLI for live values, history fallback,
+  fixture decoding and offline QML analysis
+- includes deployment scripts and sanitized protocol fixtures
 
 The collector intentionally exposes no settings, PIN/PUK, bonding-key, DFU or
 other device-writing API. Pairing is performed separately with `bluetoothctl`;
@@ -32,6 +34,7 @@ pairing credentials never belong in this repository or its configuration.
 | `apps/victron-collector` | production collector daemon |
 | `apps/victron-cli` | diagnostics and connectivity checks |
 | `crates/victron-bluez` | Linux BlueZ BLE transport |
+| `crates/victron-client` | shared read-only session, flow control and diagnostics |
 | `crates/victron-protocol` | pure VE.Smart framing and decoding |
 | `crates/victron-domain` | validated domain measurements |
 | `crates/victron-storage` | SQLite state and delivery spool |

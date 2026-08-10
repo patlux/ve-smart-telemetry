@@ -1,6 +1,6 @@
 //! Bounded reassembly of Data/LastData notifications into complete CBOR
-//! payloads, mirroring the receive logic of
-//! `scripts/read-victron-history.py`:
+//! payloads, preserving the proven history-reader behavior now used by
+//! `victron-client` and `victron-cli read-history`:
 //!
 //! * notifications on the **Data** characteristic append bytes to the buffer;
 //! * a notification on the **LastData** characteristic appends its bytes and

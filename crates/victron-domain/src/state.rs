@@ -2,8 +2,8 @@
 //!
 //! State codes are domain-level and wire-independent. The numeric code
 //! mapping below follows the reverse-engineered VictronConnect `STATE_NAMES`
-//! table (see `scripts/read-victron-live-values.py` and
-//! `analysis/victronconnect-protocol-reference.md`). Unknown numeric codes
+//! table documented in `analysis/victronconnect-protocol-reference.md` and
+//! implemented by the Rust VREG decoder. Unknown numeric codes
 //! are preserved safely as `Unknown(u8)` instead of being dropped or
 //! mislabeled.
 

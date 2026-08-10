@@ -646,7 +646,7 @@ Suggested capture table:
 | Off reasons | map `/DeviceOffReason` numeric values to `DeviceOffReasons` QML strings | todo |
 | Device name | confirm `/CustomName`, `/Description2`, `DeviceInfoUuid`, or `deviceJson.customName` source | todo |
 
-Live retry notes (`2026-06-03`): `getPathList(instance=3)` (`0a03`) and `getPathValues(instance=3, ...)` did not yield `0x0d`/`0x0f`; the device emitted response-like frames with response code `2`. The practical history path for this charger is therefore VREG fallback for now. `scripts/read-victron-history.py` now falls back to observed history/trend VREGs and writes `mode: "vreg-fallback"` JSON under `analysis/generated/runtime/`.
+Live retry notes (`2026-06-03`): `getPathList(instance=3)` (`0a03`) and `getPathValues(instance=3, ...)` did not yield `0x0d`/`0x0f`; the device emitted response-like frames with response code `2`. The practical history path for this charger is therefore VREG fallback for now. The former Python prototype was migrated to `victron-cli read-history`, which falls back to observed history/trend VREGs and emits `mode: "vreg-fallback"` JSON.
 
 ## 13. Remaining unknowns
 

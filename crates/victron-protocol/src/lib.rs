@@ -47,13 +47,12 @@
 //! ## Evidence base
 //!
 //! Behavior is ported from the reverse-engineering notes in
-//! `analysis/victronconnect-protocol-reference.md` and the proven Python
-//! readers `scripts/read-victron-live-values.py` and
-//! `scripts/read-victron-history.py`. Captured wire frames (sanitized, from a
-//! user-owned MPPT charger) live in `fixtures/protocol/` and are exercised by
-//! the test suite. Field semantics that static analysis could only infer are
-//! marked `candidate` in the docs; `Confidence::Confirmed` is used only for
-//! solar voltage (`0xedbb`), the one decoder the live tooling confirmed.
+//! `analysis/victronconnect-protocol-reference.md` and the former proven
+//! Python prototypes, whose functionality now lives in `victron-client` and
+//! `victron-cli`. Captured wire frames (sanitized, from a user-owned MPPT
+//! charger) live in `fixtures/protocol/` and are exercised by the test suite.
+//! Field semantics that static analysis could only infer remain `candidate`;
+//! confirmed decoders require documentation and/or live cross-check evidence.
 //!
 //! ## Limits (bounds, tuned for a Raspberry Pi Zero W)
 //!

@@ -9,8 +9,8 @@ The collector talks to the Victron **device**, not to the VictronConnect applica
 ## Existing environment
 
 - Reverse-engineered protocol and Python experiments:
-  - `scripts/read-victron-live-values.py`
-  - `scripts/read-victron-history.py`
+  - `victron-cli read-once`
+  - `victron-cli read-history`
   - `analysis/victronconnect-protocol-reference.md`
 - Target BLE device observed as `Solar Charger`, VE.Smart instance `3`.
 - Existing metrics backend:

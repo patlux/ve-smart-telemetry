@@ -10,8 +10,8 @@
 //! * the `0x0d`-`0x10` path records are **fully synthetic** and live only
 //!   in `tests/response.rs`.
 //!
-//! Expected values below are the verified outputs of the proven Python
-//! decoders (`scripts/read-victron-history.py` / `read-victron-live-values.py`)
+//! Expected values below preserve the verified outputs of the former proven
+//! Python prototypes, now implemented by the Rust CLI/client
 //! run over the same bytes — see the fixture README for the reference run.
 
 use victron_protocol::cbor::Item;

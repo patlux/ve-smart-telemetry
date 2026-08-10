@@ -1,9 +1,8 @@
 //! Cross-check tool: decode every `fixtures/protocol/*.bin` fixture and
-//! print a compact, Python-comparable summary.
+//! print a compact summary.
 //!
-//! The Python reference run (`python3 /tmp/xcheck.py fixtures/protocol`)
-//! produces the expected values; run this example and diff the outputs to
-//! verify Rust/Python parity (plan Phase 1 exit criterion).
+//! The expected values preserve the former prototype cross-check; this Rust
+//! example is now the maintained manual inspection surface.
 //!
 //! ```text
 //! cargo run --example crosscheck -- /path/to/fixtures/protocol

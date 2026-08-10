@@ -73,12 +73,13 @@ Fully synthetic (device rejects path API on tested firmware):
 
 ## Reference decode run
 
-Expected values are pinned by running the proven Python decoders over the
-fixtures:
+Expected values preserve the previously verified prototype outputs and are
+now decoded directly by the Rust CLI:
 
 ```sh
-python3 /tmp/xcheck.py fixtures/protocol
+cargo run -p victron-cli -- decode-fixture fixtures/protocol/value-history-104f.bin
+cargo run -p victron-protocol --example crosscheck -- fixtures/protocol
 ```
 
-This prints items, records, and per-VREG decoded values that the Rust test
-suite (`crates/victron-protocol/tests/fixtures.rs`) asserts.
+The Rust test suite (`crates/victron-protocol/tests/fixtures.rs`) pins the
+items, records, and per-VREG decoded values.

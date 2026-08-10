@@ -63,8 +63,8 @@ Main UI labels are not Android `res/values/strings.xml`; they are compiled Qt/QM
 
 Implemented static QML extraction scripts:
 
-- `scripts/extract-qmlcache-strings.py`
-- `scripts/map-qml-fields.py`
+- `victron-cli extract-qmlcache`
+- `victron-cli map-qml-fields`
 
 Generated local artifacts:
 
@@ -196,18 +196,18 @@ Still todo:
 
 Implemented no-device-ready history reader:
 
-- `scripts/read-victron-history.py`
+- `victron-cli read-history`
 
 Dry run while the BLE device is not nearby:
 
 ```bash
-python3 scripts/read-victron-history.py --dry-run --days 30 --out analysis/generated/history-dry-run.json
+victron-cli read-history --dry-run --days 30 --out analysis/generated/history-dry-run.json
 ```
 
 When the owned device is nearby and paired/bonded:
 
 ```bash
-uv run --with bleak python scripts/read-victron-history.py --target 'Solar Charger' --days 30 --out analysis/generated/runtime/solar-charger-history.json
+victron-cli read-history --device 'Solar Charger' --days 30 --out analysis/generated/runtime/solar-charger-history.json
 ```
 
 The script prepares candidate paths and implements the path protocol:
@@ -239,13 +239,13 @@ Generated artifacts:
 
 | Script | Purpose |
 |---|---|
-| `scripts/extract-qmlcache-strings.py` | Extract QML cache string tables from `libVictronConnect_armeabi-v7a.so`. |
-| `scripts/map-qml-fields.py` | Window strings around QML components and produce UI field candidates. |
-| `scripts/read-victron-history.py` | Read path-based solar charger history when the owned BLE device is nearby; supports `--dry-run` offline. |
-| `scripts/extract-qt-resources-from-elf.py` | Dump Qt resources, especially shared definitions JSON. |
-| `scripts/parse-vregs-json.py` | Parse `vregs.json` into path/VREG/conversion mapping. |
-| `scripts/decode-vesmart-btsnoop.py` | Reassemble VE.Smart BLE CBOR from HCI/tshark output. |
-| `scripts/resolve-ui-ble-mapping.py` | Join static QML + VREG map + runtime BLE events into final mapping. |
+| `victron-cli extract-qmlcache` | Extract QML cache string tables from an authorized ELF32 artifact. |
+| `victron-cli map-qml-fields` | Map extracted strings to reproducible UI field candidates. |
+| `victron-cli read-history` | Read path-based solar charger history or the observed VREG fallback; supports `--dry-run`. |
+| Future Rust command: extract Qt resources | Dump Qt resources, especially shared definitions JSON. |
+| Future Rust command: parse `vregs.json` | Parse path/VREG/conversion mappings. |
+| Future Rust command: decode btsnoop | Reassemble VE.Smart BLE CBOR from authorized HCI/tshark input. |
+| Future Rust command: resolve UI mapping | Join static QML + VREG map + runtime BLE evidence. |
 | `scripts/frida-victron-map.js` | Optional owned-device native hooks for mapping requests before BLE encoding. |
 
 ## Safety

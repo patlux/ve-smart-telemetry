@@ -1,9 +1,9 @@
 //! VREG payload decoding: raw little-endian VREG values → scaled values,
 //! with sentinel rejection and an explicit confidence marker.
 //!
-//! Decoders are ported from `decode_vreg_payload()` in
-//! `scripts/read-victron-history.py` and the `FIELDS`/`decode_raw()` tables
-//! in `scripts/read-victron-live-values.py` (the union of both readers).
+//! Decoders were ported from the proven Python history/live prototypes and
+//! are now the single implementation used by `victron-cli read-once`,
+//! `victron-cli read-history`, fixtures, and the collector.
 //! Solar voltage (`0xedbb`, u16 LE / 100) and panel power (`0xedbc`, u32
 //! LE / 100 W) are marked [`Confidence::Confirmed`]. Both match live target
 //! captures; the panel-power identity, type, unit, and scale are additionally

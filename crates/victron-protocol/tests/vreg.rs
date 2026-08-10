@@ -208,8 +208,8 @@ fn state_names() {
 }
 
 // Golden tests for the explicitly candidate decoders added from the live
-// reader's FIELDS table (scripts/read-victron-live-values.py). Expected
-// values are the Python `decode_raw` outputs for the same bytes; none of
+// former live-reader field table. Expected values preserve the proven
+// prototype outputs for the same bytes; none of
 // these decoders is Confirmed.
 
 #[test]

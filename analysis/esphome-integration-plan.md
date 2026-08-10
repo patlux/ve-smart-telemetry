@@ -282,7 +282,7 @@ button:
 
 ### Phase 2 — runtime validation with owned device
 
-- [ ] Run `scripts/read-victron-history.py` against the device.
+- [ ] Run `victron-cli read-history` against the device.
 - [ ] Capture PathList and PathValue responses.
 - [ ] Confirm day indexing and units.
 - [ ] Confirm state/off-reason enum values.
@@ -313,4 +313,4 @@ Continue without the device:
 2. parse path/VREG/scaling metadata
 3. generate an ESPHome entity mapping spec from `ui-field-candidates.json` + `vreg-path-map.json`
 
-Then, when the device is nearby, use `scripts/read-victron-history.py` to validate the mapping before writing embedded C++.
+Then, when the device is nearby, use `victron-cli read-history` to validate the mapping before writing embedded C++.

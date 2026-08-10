@@ -1,10 +1,10 @@
 //! Concatenated CBOR stream decoding over the observed VE.Smart subset,
-//! plus the exact request encoders used by the proven Python readers.
+//! plus the exact request encoders recovered by the proven prototypes.
 //!
 //! The device emits **concatenated** CBOR values in one Data/LastData
 //! notification (for example two `0x08` Value records back to back). This
-//! module decodes every item until the input is exhausted, mirroring
-//! `decode_stream()` in `scripts/read-victron-history.py`.
+//! module decodes every item until the input is exhausted, preserving the
+//! proven history-reader behavior now used by `victron-cli read-history`.
 //!
 //! [minicbor] provides the bounds-checked low-level parser; this module adds
 //! the generic value tree (`Item`), a depth/item budget, and per-item size

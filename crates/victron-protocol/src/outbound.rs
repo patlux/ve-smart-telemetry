@@ -2,7 +2,7 @@
 //! chunks for the VE.Smart characteristics.
 //!
 //! Evidence (see `analysis/victronconnect-protocol-reference.md` §6.3 and
-//! `scripts/read-victron-live-values.py`):
+//! the captured live-reader fixtures now exposed through `victron-cli read-once`):
 //!
 //! * the proven live reader writes **single-frame** read requests directly
 //!   to the LastData characteristic (`...0003`, `DATA1_UUID` in the script);

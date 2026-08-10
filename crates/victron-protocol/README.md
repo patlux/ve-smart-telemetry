@@ -57,24 +57,18 @@ for r in responses {
 ```sh
 cargo test            # unit + fixture-driven integration tests
 cargo test --doc
-cargo run --example crosscheck -- ../../fixtures/protocol   # Python-parity dump
+cargo run --example crosscheck -- ../../fixtures/protocol   # fixture summary
 ```
 
 Fixture tests read `fixtures/protocol/*.bin` (provenance in
 `fixtures/protocol/README.md` — most are captured verbatim wire payloads,
 `value-history-*` are captured raw payloads with synthetic wrappers, and the
-path records are fully synthetic). Expected values are the verified outputs
-of the proven Python decoders.
-
-## Python parity
-
-Plan Phase 1 exit criterion: *Rust and Python produce the same requests and
-normalized values for all accepted fixtures.* Verified:
+path records are fully synthetic). Expected values preserve the previously
+verified prototype outputs. The production parser and CLI are now Rust-only:
 
 ```sh
-python3 /tmp/xcheck.py fixtures/protocol   # Python reference dump
+cargo run -p victron-cli -- decode-fixture ../../fixtures/protocol/value-history-104f.bin
 cargo run --example crosscheck -- ../../fixtures/protocol
-# diff — identical items/records/scaled values on all 23 fixtures
 ```
 
 ## Design notes

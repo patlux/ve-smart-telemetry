@@ -1,7 +1,7 @@
 //! Typed response records parsed from concatenated Data/LastData payloads.
 //!
-//! Record scanning mirrors the proven `decode_path_records()` in
-//! `scripts/read-victron-history.py`: a sliding window over the decoded CBOR
+//! Record scanning preserves the proven history-reader sliding-window logic:
+//! a sliding window over the decoded CBOR
 //! items recognizes known opcode shapes and skips unrecognized items, so
 //! mixed/unknown streams stay robust. Values that are not part of a known
 //! record surface as [`Response::Unknown`].

@@ -1,7 +1,7 @@
 //! Read-only outbound VE.Smart requests and their exact CBOR encoding.
 //!
 //! Wire format (from `analysis/victronconnect-protocol-reference.md` §6 and
-//! the Python readers): one CBOR unsigned opcode followed by opcode-specific
+//! the proven prototypes): one CBOR unsigned opcode followed by opcode-specific
 //! parameters. Encoding is minimal-width and matches `cbor_uint`/`cbor_int`/
 //! `cbor_array_uints` in the Python scripts byte for byte.
 
