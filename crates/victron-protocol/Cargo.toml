@@ -1,0 +1,21 @@
+[package]
+name = "victron-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Pure VE.Smart BLE protocol crate (read-only subset): CBOR framing, control negotiation, request encoding, response decoding, VREG scaling."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+keywords = ["victron", "ble", "vesmart", "cbor", "solar"]
+categories = ["embedded", "hardware-support"]
+
+[dependencies]
+# Compact, bounds-checked CBOR. Verified against the observed concatenated
+# VE.Smart streams (indefinite arrays, indefinite bytes, f16/f32/f64, tags)
+# on minicbor 2.2.2; the caret requirement lets a future workspace unify on
+# any 2.x (2.3.0 keeps the same `std`/`half` feature set and passes the full
+# suite). `half` enables f16 decode; `std` enables alloc-backed skip().
+minicbor = { version = "2.2.2", features = ["std", "half"] }
+
+[dev-dependencies]
+# none: the crate is intentionally dependency-free beyond minicbor.

@@ -1,0 +1,83 @@
+# victron-collector.example.toml
+#
+# Reference configuration for the Victron VE.Smart BLE collector.
+# Install it as /etc/victron-collector/config.toml (root-owned, 0644).
+# The service only READS this file; it never writes to /etc.
+#
+# SCHEMA NOTE: this file tracks the current collector config schema
+# (service/apps/victron-collector/src/config.rs, deny_unknown_fields). The
+# service hardening lane may change that schema; recheck this file against
+# config.rs before the next release. install-release.sh validates the
+# installed config against the candidate binary (--config PATH
+# --check-config), so a drifted example fails the install instead of
+# silently installing an invalid config.
+#
+# SECURITY RULES
+#   * Never put the Victron PIN, PUK, bond key, or any credential here.
+#     Pairing is a one-time local `bluetoothctl` step; the PIN is entered
+#     only inside bluetoothctl's own prompt. BlueZ owns the bond material
+#     under /var/lib/bluetooth/ (root-only), outside this repository.
+#   * The URL below is the ONLY destination the service talks to. The
+#     service opens no inbound port. Reachability is documented in
+#     docs/security.md; verify the intended path with
+#     deploy/scripts/verify-installation.sh and the unintended (off-tailnet)
+#     path with deploy/scripts/exposure-check.sh --unreachable URL.
+#   * Every key in this file has a bounded, low-cardinality value. Do not
+#     use MAC addresses, register IDs, or error text as label-ish values.
+
+[device]
+# Stable short label for Prometheus/Grafana. Must match across config,
+# dashboards, and alerts; it becomes the {device=...} label.
+name = "solar-charger"
+# BlueZ alias as shown by `bluetoothctl devices` / VictronConnect. The
+# collector resolves the bonded device by this identity; it never needs
+# the MAC in this file.
+bluez_alias = "Solar Charger"
+# VE.Smart instance reported by VictronConnect for this device.
+instance = 3
+# Bluetooth controller to use.
+adapter = "hci0"
+
+[poll]
+# Interval while solar power is active.
+active_interval_seconds = 15
+# Interval while the device reports idle/standby.
+idle_interval_seconds = 60
+# Per-request BLE response timeout before the cycle is retried with backoff.
+response_timeout_seconds = 8
+# Per-phase BLE protocol timeout. Solar Charger emits connectable ADV_IND slots
+# much less frequently than its non-connectable telemetry beacons; allow up to
+# two minutes for discovery/link establishment. Individual response/property
+# operations remain bounded by response_timeout_seconds.
+phase_timeout_seconds = 120
+# Maximum gap between valid power samples accepted by the local energy
+# integration fallback; longer gaps are never silently bridged.
+maximum_energy_gap_seconds = 300
+# Spool claim TTL: a batch claimed for delivery is released back to the
+# spool after this long if delivery never completes.
+spool_claim_ttl_seconds = 120
+# Maximum delivery attempts per batch before it is dropped.
+spool_max_attempts = 5
+# Exponential backoff base between failed cycles.
+backoff_base_seconds = 5
+# Backoff multiplier per consecutive failure.
+backoff_factor = 2
+# Backoff cap.
+backoff_cap_seconds = 300
+
+[victoria_metrics]
+# Import endpoint. Plain HTTP on the tailnet CGNAT range; no TLS and no auth
+# are assumed at this endpoint today (internal network only - see docs/security.md).
+# If auth is ever added, the collector's request code must be extended; keep
+# this file free of credentials.
+url = "http://100.64.0.2:8429/api/v1/import/prometheus"
+request_timeout_seconds = 10
+
+[storage]
+# Must stay under /var/lib/victron-collector (unit ReadWritePaths). If you
+# change the filename, adjust nothing else; if you move it outside that
+# directory, also update ReadWritePaths= in the systemd unit.
+path = "/var/lib/victron-collector/state.sqlite3"
+# Bounded spool: never grow without limit on a Pi Zero W.
+maximum_spool_batches = 10000
+maximum_spool_age_days = 7

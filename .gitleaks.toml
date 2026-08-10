@@ -1,0 +1,7 @@
+title = "Victron collector secret scanning"
+
+# Keep the complete upstream ruleset enabled. There are deliberately no path,
+# commit, rule, or fingerprint allowlists: staged content and Git history must
+# fail closed, including files force-added from normally ignored directories.
+[extend]
+useDefault = true

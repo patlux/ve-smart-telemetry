@@ -1,0 +1,46 @@
+[package]
+name = "victron-metrics"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Prometheus text encoding and VictoriaMetrics import client for the Victron BLE collector"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+documentation = "https://github.com/patlux/ve-smart-telemetry"
+categories = ["network-programming", "observability"]
+keywords = ["prometheus", "victoriametrics", "victron", "metrics"]
+
+# The production target is Raspberry Pi Zero W (arm-unknown-linux-gnueabihf,
+# ARMv6 hard-float). The runtime dependency set is deliberately minimal:
+# tokio (no TLS, no HTTP stack of its own) only. The VictoriaMetrics import
+# client speaks HTTP/1.1 directly over tokio::net::TcpStream, so no TLS, no
+# native-tls/openssl, no rustls, no hyper/reqwest tree is pulled in for the
+# internal plaintext endpoint. See README.md for the footprint rationale.
+[dependencies]
+tokio = { version = "1", default-features = false, features = ["net", "time", "io-util"] }
+
+# Optional integration adapter for the workspace `victron-domain` crate.
+# The `domain` feature builds the mapping in src/domain.rs. Note that
+# victron-domain requires rustc >= 1.83, so enabling `domain` raises the
+# effective MSRV above this crate's declared 1.75 (which still applies to the
+# default standalone build).
+victron-domain = { path = "../victron-domain", optional = true }
+
+[features]
+default = []
+# Enables src/domain.rs, which maps victron_domain::Sample into this crate's
+# SampleView adapter.
+domain = ["dep:victron-domain"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "time", "io-util"] }
+
+# Release profile intentionally NOT set here: it belongs in the workspace root
+# Cargo.toml (see analysis/rust-multicrate-collector-plan.md) and member-level
+# profiles are ignored inside a workspace anyway. Suggested values:
+#   [profile.release]
+#   opt-level = "s"
+#   lto = "thin"
+#   codegen-units = 1
+#   panic = "abort"
+#   strip = "symbols"

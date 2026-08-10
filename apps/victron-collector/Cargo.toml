@@ -1,0 +1,31 @@
+[package]
+name = "victron-collector"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Production daemon for the Victron VE.Smart BLE collector"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+
+[[bin]]
+name = "victron-collector"
+path = "src/main.rs"
+
+[dependencies]
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+sd-notify = "0.5"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = ["rt", "time", "sync", "macros", "signal"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+victron-bluez = { path = "../../crates/victron-bluez" }
+victron-domain = { path = "../../crates/victron-domain" }
+victron-metrics = { path = "../../crates/victron-metrics", features = ["domain"] }
+victron-protocol = { path = "../../crates/victron-protocol" }
+victron-service = { path = "../../crates/victron-service" }
+victron-storage = { path = "../../crates/victron-storage" }
+
+[dev-dependencies]

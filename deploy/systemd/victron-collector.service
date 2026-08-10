@@ -1,0 +1,146 @@
+# victron-collector.service
+#
+# Victron VE.Smart BLE collector for Raspberry Pi OS: reads a bonded Victron
+# device over BlueZ (system D-Bus) and pushes Prometheus text to the
+# configured VictoriaMetrics import endpoint.
+#
+# Exposure model: the service opens NO inbound sockets. It only makes
+# outbound HTTP connections to the URL in
+# /etc/victron-collector/config.toml (default tailnet:
+# http://100.64.0.2:8429/api/v1/import/prometheus). There is no
+# Port=/Socket=/ListenStream= anywhere in this unit, and the collector
+# binary ships no listener. "No listener" is an application contract that
+# is verified at runtime (deploy/scripts/verify-installation.sh checks
+# `ss -lntup`), NOT a property enforced by the hardening directives below:
+# RestrictAddressFamilies= and an empty CapabilityBoundingSet= still allow
+# bind()/listen() on a normal IP socket (they only remove raw/packet socket
+# families and privileged binds). See docs/security.md for the full
+# statement.
+#
+# Hardening is intentionally incremental: the baseline block below must not
+# break BlueZ access over the system D-Bus socket /run/dbus/system_bus_socket.
+# The "extended" block is commented out; enable one line at a time and run
+# deploy/scripts/verify-installation.sh plus one live read after each change.
+
+[Unit]
+Description=Victron VE.Smart BLE collector (Prometheus push to VictoriaMetrics)
+Wants=bluetooth.service network-online.target
+After=dbus.service bluetooth.service network-online.target
+# Start rate limiting belongs in the [Unit] section (systemd.unit(5)); the
+# [Service] section placement is only a deprecated compatibility alias.
+# Restart=on-failure attempts count against this limit, so a config error
+# that crashes instantly gives up after 5 starts within 600 s (no crash loop).
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+# READY is emitted only after config, adapters, SQLite, signal handling and
+# the progress watchdog are initialized. Watchdog heartbeats are withheld
+# when a collector phase exceeds its explicit internal progress budget.
+Type=notify
+NotifyAccess=main
+User=victron-collector
+Group=victron-collector
+# The service talks to the BlueZ daemon over the system bus. Raspberry Pi OS
+# ships a permissive org.bluez D-Bus policy, so no supplementary group is
+# needed by default. If a custom policy restricts org.bluez to a group, add:
+#   SupplementaryGroups=bluetooth
+
+# --- paths ---------------------------------------------------------------
+# /var/lib/victron-collector (state.sqlite3 + spool): created by systemd,
+# owned by the service user, and implicitly added to ReadWritePaths.
+StateDirectory=victron-collector
+# /etc/victron-collector/config.toml: created by systemd, root-owned, read-only.
+ConfigurationDirectory=victron-collector
+# Explicit and redundant with StateDirectory=, kept for clarity and for
+# systemd < 235 behaviour if this unit is ever reused elsewhere.
+ReadWritePaths=/var/lib/victron-collector
+
+ExecStart=/usr/local/bin/victron-collector --config /etc/victron-collector/config.toml
+SyslogIdentifier=victron-collector
+
+# --- lifecycle ----------------------------------------------------------
+Restart=on-failure
+RestartSec=30
+# Longer than the 120 s BLE phase deadline plus cleanup/scheduling jitter.
+# The application normally reports every 30 s. If its phase-aware progress
+# deadline expires while the runtime still responds, it explicitly triggers
+# the watchdog; a fully blocked runtime simply stops heartbeats. systemd then
+# terminates the stuck process and Restart=on-failure recovers it.
+WatchdogSec=180
+# A watchdog expiry means the process is no longer making bounded progress;
+# do not spend the normal graceful-stop budget waiting on a known hang.
+# SQLite's atomic commit/spool contract makes the abrupt recovery safe.
+WatchdogSignal=SIGKILL
+# The service honours shutdown after the current BLE phase. The configured
+# production phase deadline is 120 s; leave deterministic cleanup headroom so
+# systemd never SIGKILLs a healthy in-flight discovery/connect operation.
+TimeoutStopSec=150
+KillSignal=SIGTERM
+Environment=RUST_LOG=info
+
+# Bounded resources. Values are starting points; re-measure idle/peak RSS on
+# the Pi Zero W and adjust. MemoryMax is intentionally commented until real
+# peak RSS is known, so the service is never killed by an unvalidated limit.
+TasksMax=32
+LimitNOFILE=512
+MemoryHigh=64M
+# MemoryMax=128M
+
+# --- hardening: baseline (safe with BlueZ over system D-Bus) -------------
+# None of the following touches AF_UNIX connect() to /run/dbus/system_bus_socket
+# or the IP sockets the collector needs for outbound HTTP.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+# D-Bus is AF_UNIX; VictoriaMetrics on tailnet is AF_INET. This excludes
+# raw/packet socket families (AF_PACKET, AF_NETLINK, ...). It does NOT by
+# itself prevent bind()/listen() on an allowed family — the absence of a
+# listener is verified at runtime via ss -lntup, not guaranteed here.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RemoveIPC=yes
+UMask=0077
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+MemoryDenyWriteExecute=yes
+
+# --- hardening: extended (incremental) -----------------------------------
+# Enable one line at a time, then run:
+#   sudo deploy/scripts/verify-installation.sh --strict
+# and confirm one live read (victron-cli read-once --device <alias>) still works.
+# Tailnet-only egress (deny-by-default allowlist). IPAddressAllow= alone does
+# NOT restrict egress: systemd allows anything that is not explicitly denied,
+# so a real allowlist pairs the allow entries with IPAddressDeny=any. Per
+# systemd.resource-control(5) the rules are applied in turn: access is granted
+# when the address matches an IPAddressAllow= entry, otherwise denied when it
+# matches an IPAddressDeny= entry, otherwise granted. The allow list is
+# therefore evaluated before the deny list and Allow has precedence over
+# Deny; the textual order of the lines in this unit is irrelevant (all
+# IPAddressAllow= lines combine into one list, all IPAddressDeny= lines into
+# another). "any" also blocks loopback (127.0.0.0/8, ::1) and DNS lookups, so
+# if the config URL ever switches to a DNS name, allow the resolver here too,
+# e.g.:
+#   IPAddressAllow=192.168.0.1/32
+# D-Bus is AF_UNIX and is unaffected by IP filtering. Not active by default;
+# test incrementally and re-verify after each line.
+# IPAddressAllow=100.64.0.0/10
+# IPAddressDeny=any
+# No /dev node access is required by the service (D-Bus is a socket).
+# PrivateDevices=yes
+# ProtectProc=invisible
+# ProcSubset=pid
+# SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+[package]
+name = "victron-storage"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Durable SQLite persistence (outbound batch spool, energy integration state, key/value state) for the Victron BLE collector"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+keywords = ["sqlite", "storage", "spool", "victron", "ble"]
+categories = ["database"]
+
+[features]
+# Bundled SQLite (default): self-contained, reproducible, and the most robust
+# choice for cross-compiling the ARMv6 Raspberry Pi Zero W target.
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]
+# Link against the system SQLite via pkg-config. Smaller binaries, but the
+# deployed system must provide a recent libsqlite3. Do not combine with
+# bundled-sqlite.
+system-sqlite = []
+
+[dependencies]
+# default-features off: rusqlite's defaults pull in a wasm-only feature and
+# hashlink caching that this crate does not need.
+rusqlite = { version = "0.40", default-features = false }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

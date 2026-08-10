@@ -1,0 +1,18 @@
+[package]
+name = "victron-domain"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+description = "Wire-independent domain model for the Victron BLE collector: device ids, samples, measurements, quality, charger/load states."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+readme = "README.md"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+
+[lib]
+name = "victron_domain"
+path = "src/lib.rs"

@@ -1,0 +1,20 @@
+# Cross-compilation configuration for the Raspberry Pi Zero W.
+#
+# Primary target: arm-unknown-linux-gnueabihf (ARMv6, 32-bit, hard-float).
+#
+# The linker name below is the conventional one (`arm-linux-gnueabihf-gcc`,
+# as shipped by Debian/Ubuntu cross toolchains and by release/Dockerfile).
+# Inside the Nix dev shell the absolute path to the nixpkgs cross GCC is
+# injected via CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER (see
+# flake.nix); cargo gives that environment variable precedence over this
+# file. See ARMv6-BUILD.md for the check-vs-release split.
+
+[target.arm-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+
+# Exact CPU of the Pi Zero W (ARM1176JZF-S: ARMv6 + VFPv2). This selects
+# ARMv6-appropriate codegen without enabling ARMv7/NEON instructions. The
+# prebuilt rust std for this target is already ARMv6 hard-float baseline,
+# so this flag only affects codegen of local crates. It applies to both the
+# Nix check build and the container release build.
+rustflags = ["-C", "target-cpu=arm1176jzf-s"]

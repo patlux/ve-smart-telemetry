@@ -1,0 +1,38 @@
+# Reverse-engineering artifacts: large / third-party / generated
+raw/
+decompiled/
+analysis/generated/
+*.apk
+*.xapk
+*.apks
+*.jar
+*.dex
+*.so
+*.zip
+*.tmp
+
+# Local tool noise
+.DS_Store
+hk.local.pkl
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Private/runtime captures and logs
+*.log
+*.pcap
+*.pcapng
+*.btsnoop
+*.hci
+*.sqlite
+*.db
+*.jsonl
+
+# Rust / Nix workspace outputs
+/target/
+**/target/
+result
+result-*
+.direnv/

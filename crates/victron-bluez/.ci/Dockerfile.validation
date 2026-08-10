@@ -1,0 +1,18 @@
+# Validation image for victron-bluez: Linux x86/arm64 host toolchain +
+# armhf (ARMv6/ARMv7) cross D-Bus setup for cargo check of
+# arm-unknown-linux-gnueabihf (Pi Zero W / Pi 1 class devices).
+FROM victron-rust-test:latest
+RUN rustup target add arm-unknown-linux-gnueabihf \
+ && dpkg --add-architecture armhf \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      libdbus-1-dev libdbus-1-dev:armhf pkg-config \
+      gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+ && rm -rf /var/lib/apt/lists/*
+ENV PKG_CONFIG_ALLOW_CROSS="true" \
+    PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig" \
+    CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER="/usr/bin/arm-linux-gnueabihf-gcc" \
+    CC_arm_unknown_linux_gnueabihf="arm-linux-gnueabihf-gcc" \
+    CXX_arm_unknown_linux_gnueabihf="arm-linux-gnueabihf-g++"
+WORKDIR /src
+RUN rustup component add rustfmt clippy

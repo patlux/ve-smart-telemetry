@@ -1,0 +1,23 @@
+[package]
+name = "victron-service"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Application orchestration for the Victron VE.Smart BLE collector"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+keywords = ["victron", "ble", "collector", "orchestration"]
+categories = ["embedded"]
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = ["rt", "time", "sync", "macros"] }
+tracing = "0.1"
+
+# Canonical domain model (Sample/DeviceId/ChargerState/Quality).
+victron-domain = { path = "../victron-domain" }
+
+[dev-dependencies]
+async-trait = "0.1"
+tokio = { version = "1", default-features = false, features = ["rt", "time", "sync", "macros", "test-util"] }

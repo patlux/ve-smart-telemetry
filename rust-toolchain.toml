@@ -1,0 +1,12 @@
+# Toolchain pin for the whole workspace.
+#
+# Must match the toolchain pinned in flake.nix (rust-overlay rust-bin
+# stable 1.97.1). rustup users get this toolchain automatically when
+# entering the directory; the ARMv6 target std is included so
+# `cargo build --target arm-unknown-linux-gnueabihf` works out of the box.
+
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["arm-unknown-linux-gnueabihf"]

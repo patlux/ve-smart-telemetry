@@ -1,0 +1,81 @@
+# Root manifest for the Victron BLE collector Rust workspace.
+#
+# Multi-crate layout: pure library crates live under crates/, executable
+# binaries under apps/. Those crates are owned by their respective lanes and
+# declare themselves as workspace members through the globs below. This root
+# manifest defines shared metadata, the shared dependency shortlist, and the
+# release profile tuned for the Raspberry Pi Zero W (ARMv6 hard-float). See
+# ARMv6-BUILD.md for the cross-compilation setup.
+
+[workspace]
+resolver = "2"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+description = "Read-only VE.Smart BLE telemetry collector for Linux and VictoriaMetrics"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+
+# ---------------------------------------------------------------------------
+# Shared dependency shortlist.
+#
+# STATUS: assembled from the lane manifests that currently exist (bluez,
+# domain, metrics, protocol, service, storage). This is a *candidate* set:
+# the lane crates are NOT workspace members yet, so none of the entries below
+# have been resolved/compiled together in this workspace. Integration will
+# reconcile exact versions and feature unions — do not treat this list as
+# validated until a real member references it via `foo.workspace = true`.
+#
+# Lane ground truth used here:
+#   victron-metrics   tokio only (direct tokio TCP -> VictoriaMetrics; NO
+#                     reqwest/hyper/TLS stack — plan's minimal-footprint rule)
+#   victron-bluez     async-trait, bluer(bluetoothd), futures, log, tokio, uuid
+#   victron-domain    (no deps)
+#   victron-protocol  minicbor (lane pins =2.2.2 with std+half)
+#   victron-service   async-trait, thiserror, tokio, tracing
+#   victron-cli       clap(derive), thiserror
+#   victron-collector async-trait, clap(derive), serde(derive), thiserror,
+#                     tokio(+signal), toml(0.8), tracing, tracing-subscriber
+#   victron-storage   rusqlite (bundled default), thiserror, tempfile
+#
+# Deliberately NOT shared (nothing uses them): anyhow, reqwest.
+# Known reconciliation items: toml lane=0.8 vs 1.1 here; minicbor lane
+# exact-pin =2.2.2 vs "2" here; tokio feature union.
+# ---------------------------------------------------------------------------
+
+[workspace.dependencies]
+async-trait = "0.1"
+bluer = { version = "0.17", default-features = false, features = ["bluetoothd"] }
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+futures = "0.3"
+log = "0.4"
+minicbor = { version = "2.2", default-features = false, features = ["std", "half"] }
+rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1.53", default-features = false, features = ["rt", "macros", "time", "sync", "net", "io-util", "signal"] }
+toml = "1.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+uuid = { version = "1", default-features = false, features = ["std"] }
+
+# ---------------------------------------------------------------------------
+# Release profile per the approved plan, tuned for the Pi Zero W:
+# size-oriented optimization, thin LTO, one codegen unit, abort on panic,
+# symbol stripping. Measure startup time, RSS, CPU and binary size on
+# hardware before further tuning.
+#
+# Note: `panic = "abort"` prevents `cargo test --release`; run tests with
+# the default (dev) profile (see Makefile).
+# ---------------------------------------------------------------------------
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

@@ -1,0 +1,85 @@
+amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
+
+min_hk_version = "1.54.1"
+default_branch = "origin/main"
+fail_fast = false
+
+local fastChecks = new Mapping<String, Step> {
+    ["gitleaks-staged"] {
+        check = "gitleaks git --staged --redact --no-banner"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["private-keys"] = Builtins.detect_private_key
+    ["merge-conflicts"] = Builtins.check_merge_conflict
+    ["large-files"] = Builtins.check_added_large_files
+    ["trailing-whitespace"] = Builtins.trailing_whitespace
+    ["cargo-fmt"] = (Builtins.cargo_fmt) {
+        glob = List("**/*.rs")
+        check = "nix develop -c cargo fmt --all --check"
+    }
+    ["shell-syntax"] {
+        glob = List("**/*.sh")
+        check = "bash -n {{files}}"
+    }
+    ["diff-check"] {
+        check = "git diff --cached --check"
+        exclusive = true
+    }
+}
+
+local fullChecks = new Mapping<String, Step> {
+    ["release-image"] {
+        check = "docker image inspect victron-armv6-release:phase0 >/dev/null 2>&1 || docker build -t victron-armv6-release:phase0 -f release/Dockerfile release/"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["gitleaks-history"] {
+        check = "gitleaks git --redact --no-banner --log-opts=--all"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["workspace-tests"] {
+        check = "docker run --rm -v \"$PWD\":/workspace -w /workspace victron-armv6-release:phase0 bash -lc 'unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_LIBDIR PKG_CONFIG_ALLOW_CROSS; cargo test --workspace --all-targets --locked'"
+        depends = "release-image"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["workspace-clippy"] {
+        check = "docker run --rm -v \"$PWD\":/workspace -w /workspace victron-armv6-release:phase0 bash -lc 'unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_LIBDIR PKG_CONFIG_ALLOW_CROSS; cargo clippy --workspace --all-targets --locked -- -D warnings'"
+        depends = "release-image"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["workspace-rustdoc"] {
+        check = "docker run --rm -v \"$PWD\":/workspace -w /workspace victron-armv6-release:phase0 bash -lc 'unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_LIBDIR PKG_CONFIG_ALLOW_CROSS; RUSTDOCFLAGS=\"-D warnings\" cargo doc --workspace --no-deps --locked'"
+        depends = "release-image"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["shell-syntax-all"] {
+        check = "bash -n deploy/scripts/*.sh deploy/tests/*.sh release/*.sh"
+        exclusive = true
+        output_summary = "combined"
+    }
+    ["deployment-tests"] {
+        check = "deploy/tests/run-tests.sh"
+        exclusive = true
+        output_summary = "combined"
+    }
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = false
+        stash = "none"
+        steps = fastChecks
+    }
+    ["pre-push"] {
+        steps = fullChecks
+    }
+    ["check"] {
+        steps = fastChecks
+    }
+}

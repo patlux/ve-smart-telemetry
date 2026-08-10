@@ -1,0 +1,18 @@
+[package]
+name = "victron-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Diagnostic CLI for the Victron VE.Smart BLE collector"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patlux/ve-smart-telemetry"
+
+[[bin]]
+name = "victron-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
