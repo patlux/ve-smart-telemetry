@@ -98,6 +98,32 @@ async fn pre_epoch_timestamp_is_rejected_at_the_seam() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn confirmed_power_reanchors_persisted_state_without_historical_energy() {
+    let mut h = Harness::new(base_config());
+    h.storage.lock().unwrap().energy = Some(EnergyState {
+        total_kwh: 1.0,
+        last_power_watts: None,
+        last_sample_at: Some(t(0)),
+    });
+    h.protocol.lock().unwrap().observed_at = t(15);
+
+    let (outcome, _health) = one_cycle(&mut h).await;
+    match outcome {
+        CycleOutcome::Success(result) => {
+            assert_eq!(result.energy.kind, EnergyKind::Started);
+            assert_eq!(result.resolved_yield_kwh, 1.0);
+        }
+        other => panic!("expected reanchored success, got {other:?}"),
+    }
+
+    let s = h.storage.lock().unwrap();
+    let energy = s.energy.as_ref().expect("energy state committed");
+    assert_eq!(energy.total_kwh, 1.0, "no historical energy invented");
+    assert_eq!(energy.last_power_watts, Some(150.0));
+    assert_eq!(energy.last_sample_at, Some(t(15)));
+}
+
+#[tokio::test(start_paused = true)]
 async fn delayed_processing_integrates_from_observed_at_not_wall_clock() {
     let mut h = Harness::new(base_config());
     // Durable anchor at t=0; the sample is observed at t=15 but only

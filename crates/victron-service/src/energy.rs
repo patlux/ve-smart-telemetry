@@ -11,8 +11,9 @@
 //!
 //! Integration is skipped (never silently bridged) when either power sample
 //! is missing/not confirmed, time moves backward (or a duplicate timestamp
-//! arrives), the gap exceeds the configured maximum, or no durable previous
-//! sample exists (fresh start).
+//! arrives), or the gap exceeds the configured maximum. A fresh state, or a
+//! durable state without a trusted power anchor, starts from the current
+//! confirmed sample without attributing historical energy.
 //!
 //! All intervals are measured from [`Sample::observed_at`] — the device's
 //! observation time — never from a later orchestration clock reading, so
@@ -31,8 +32,9 @@ pub enum EnergyKind {
     Native,
     /// Local trapezoidal integration extended the durable accumulator.
     Integrated,
-    /// No durable previous sample yet; accumulator initialized (no energy
-    /// attributed to this cycle).
+    /// Accumulator anchored from the current confirmed sample because no
+    /// durable trusted power anchor existed. No energy is attributed to the
+    /// preceding unknown interval.
     Started,
     /// Integration skipped (invalid/unconfirmed power, clock regression,
     /// duplicate timestamp or gap too large).
@@ -116,14 +118,25 @@ impl EnergyPolicy {
             };
         }
 
-        let (Some(prev_power), Some(cur_power)) = (prev.last_power_watts, confirmed_power) else {
-            // Either power sample missing or not confirmed: skip, keep the
-            // anchor (an invalid sample must never become the anchor).
+        let Some(cur_power) = confirmed_power else {
+            // Missing or unconfirmed current power: skip and keep the durable
+            // anchor. An invalid sample must never become the anchor.
             return EnergyOutcome {
                 kind: EnergyKind::Skipped,
                 total_kwh: prev.total_kwh,
                 skipped_gap_seconds: None,
                 next_state: prev,
+            };
+        };
+        let Some(prev_power) = prev.last_power_watts else {
+            // A legacy/current durable row may have an observation timestamp
+            // but no trusted power anchor. Start from this confirmed sample
+            // without attributing energy to the unknown historical interval.
+            return EnergyOutcome {
+                kind: EnergyKind::Started,
+                total_kwh: prev.total_kwh,
+                skipped_gap_seconds: None,
+                next_state: updated_state(Some(&prev), sample),
             };
         };
 
@@ -268,6 +281,29 @@ mod tests {
         assert_eq!(out.kind, EnergyKind::Skipped);
         assert_eq!(out.total_kwh, 1.0);
         assert_eq!(out.next_state, prev, "anchor must not move");
+    }
+
+    #[test]
+    fn confirmed_power_reanchors_state_that_lacks_a_power_anchor() {
+        let p = EnergyPolicy {
+            maximum_gap: Duration::from_secs(300),
+        };
+        let out = p.apply(
+            Some(prev_at(1.0, None, secs(0))),
+            &sample_with(secs(15), Some((210.0, Quality::ConfirmedNative)), None),
+        );
+        assert_eq!(out.kind, EnergyKind::Started);
+        assert_eq!(out.total_kwh, 1.0, "no historical energy is invented");
+        assert_eq!(out.next_state.last_power_watts, Some(210.0));
+        assert_eq!(out.next_state.last_sample_at, Some(secs(15)));
+
+        let integrated = p.apply(
+            Some(out.next_state),
+            &sample_with(secs(30), Some((220.0, Quality::ConfirmedNative)), None),
+        );
+        assert_eq!(integrated.kind, EnergyKind::Integrated);
+        let expected = 1.0 + 215.0 * 15.0 / 3_600_000.0;
+        assert!((integrated.total_kwh - expected).abs() < 1e-12);
     }
 
     #[test]
