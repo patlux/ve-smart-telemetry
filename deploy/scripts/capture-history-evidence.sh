@@ -11,7 +11,9 @@ COLLECTOR_SERVICE=${COLLECTOR_SERVICE:-victron-collector.service}
 CLI=${CLI:-/usr/local/bin/victron-cli}
 EVIDENCE_DIR=${EVIDENCE_DIR:-/var/lib/victron-history-evidence}
 LOCK_FILE=${LOCK_FILE:-/run/lock/victron-history-evidence.lock}
-TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-300}
+TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-180}
+READ_ATTEMPTS=${READ_ATTEMPTS:-2}
+RETRY_DELAY_SECONDS=${RETRY_DELAY_SECONDS:-10}
 
 log() { printf 'victron-history-capture: %s\n' "$*" >&2; }
 fail() { log "$*"; exit 1; }
@@ -19,6 +21,10 @@ fail() { log "$*"; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "must run as root"
 [ -x "$CLI" ] || fail "diagnostic CLI is unavailable"
 [ -r "$CONFIG" ] || fail "collector configuration is unavailable"
+case "$READ_ATTEMPTS" in
+  1|2) ;;
+  *) fail "read attempts must be 1 or 2" ;;
+esac
 case "$EVIDENCE_DIR" in
   /var/lib/victron-history-evidence|/var/lib/victron-history-evidence/*) ;;
   *) fail "evidence directory must remain under /var/lib/victron-history-evidence" ;;
@@ -64,22 +70,31 @@ if systemctl is-active --quiet "$COLLECTOR_SERVICE"; then
   systemctl is-active --quiet "$COLLECTOR_SERVICE" && fail "collector did not stop"
 fi
 
-set +e
-timeout --signal=TERM --kill-after=15 "$TIMEOUT_SECONDS" \
-  env RUST_LOG='warn,victron_bluez=debug,victron_client=debug,victron_cli=debug' \
-  "$CLI" read-history \
-    --device "$alias" \
-    --adapter "$adapter" \
-    --instance "$instance" \
-    --days 30 \
-    --connect-timeout-seconds 120 \
-    --response-timeout-seconds 15 \
-    --batch-size 8 \
-    --raw \
-    --out "$out" \
-    >/dev/null 2>"$log_file"
-cli_status=$?
-set -e
+cli_status=1
+for attempt in $(seq 1 "$READ_ATTEMPTS"); do
+  rm -f "$out" "$log_file"
+  set +e
+  timeout --signal=TERM --kill-after=15 "$TIMEOUT_SECONDS" \
+    env RUST_LOG='warn,victron_bluez=debug,victron_client=debug,victron_cli=debug' \
+    "$CLI" read-history \
+      --device "$alias" \
+      --adapter "$adapter" \
+      --instance "$instance" \
+      --days 30 \
+      --connect-timeout-seconds 120 \
+      --response-timeout-seconds 15 \
+      --batch-size 8 \
+      --raw \
+      --out "$out" \
+      >/dev/null 2>"$log_file"
+  cli_status=$?
+  set -e
+  [ "$cli_status" -eq 0 ] && break
+  log "bounded history read attempt $attempt failed"
+  if [ "$attempt" -lt "$READ_ATTEMPTS" ]; then
+    sleep "$RETRY_DELAY_SECONDS"
+  fi
+done
 
 recovery_epoch=$(date +%s)
 if [ "$was_active" = true ]; then
