@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use victron_bluez::adapter::PowerPolicy;
@@ -29,6 +29,13 @@ pub fn transport_config(
         write_chunk_size: victron_protocol::control::MIN_ATT_CHUNK_SIZE,
         require_advertisement_evidence: false,
     })
+}
+
+pub fn unix_ms_now() -> Result<u64, CliError> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| runtime("system clock precedes Unix epoch"))?;
+    u64::try_from(elapsed.as_millis()).map_err(|_| runtime("system clock is out of range"))
 }
 
 pub fn parse_u16(input: &str) -> Result<u16, String> {

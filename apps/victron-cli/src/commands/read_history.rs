@@ -12,6 +12,7 @@ use victron_protocol::{Request, Response, VregValue};
 
 use super::common::{
     cbor_item_json, decoded_vreg_json, parse_u16, print_or_write_json, transport_config,
+    unix_ms_now,
 };
 use crate::{runtime, CliError};
 
@@ -38,8 +39,8 @@ const DETAIL_SUFFIXES: &[&str] = &[
     "LastError2",
 ];
 const FALLBACK_REGISTERS: &[u16] = &[
-    0x104f, 0x1050, 0x2001, 0x2007, 0x2008, 0x200b, 0x2013, 0x2027, 0xec20, 0xec5a, 0xed8c, 0xed8d,
-    0xed8f, 0xeda9, 0xedbb, 0xedbc,
+    0x104f, 0x1050, 0x2001, 0x2007, 0x2008, 0x200b, 0x2013, 0x2027, 0xec20, 0xec3e, 0xec5a, 0xed8c,
+    0xed8d, 0xed8f, 0xeda9, 0xedbb, 0xedbc, 0xedec,
 ];
 
 #[derive(Debug, Args)]
@@ -104,6 +105,7 @@ impl ReadHistory {
             return print_or_write_json(&self.dry_run_json(paths)?, self.out.as_deref());
         }
 
+        let capture_started_at_ms = unix_ms_now()?;
         let timeout = Duration::from_secs(self.response_timeout_seconds);
         let config = transport_config(
             &self.device,
@@ -115,7 +117,20 @@ impl ReadHistory {
         let mut session = victron_client::VeSmartBleSession::new(config);
         let result = self.read(&mut session, paths, timeout).await;
         session.close_read_only().await;
-        print_or_write_json(&result?, self.out.as_deref())
+        let mut result = result?;
+        let capture_completed_at_ms = unix_ms_now()?;
+        let object = result
+            .as_object_mut()
+            .ok_or_else(|| runtime("history result must be a JSON object"))?;
+        object.insert(
+            "captureStartedAtUnixMs".to_owned(),
+            json!(capture_started_at_ms),
+        );
+        object.insert(
+            "captureCompletedAtUnixMs".to_owned(),
+            json!(capture_completed_at_ms),
+        );
+        print_or_write_json(&result, self.out.as_deref())
     }
 
     fn dry_run_json(&self, paths: Vec<String>) -> Result<Value, CliError> {

@@ -2,6 +2,7 @@
 //! commands return `CliError::NotWired` with the precise gap.
 
 pub mod adapters;
+pub mod analyze_history;
 pub mod check_victoriametrics;
 pub mod common;
 pub mod decode_fixture;

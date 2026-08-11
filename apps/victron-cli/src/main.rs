@@ -8,6 +8,7 @@
 //! victron-cli discover --device <alias> [--adapter hci0] [--timeout-seconds 10]
 //! victron-cli read-once --device <alias> [--instance 3] [--timeout-seconds 10]
 //! victron-cli read-history --device <alias> [--days 30]
+//! victron-cli analyze-history <capture.json>...
 //! victron-cli decode-fixture <path>
 //! victron-cli extract-qmlcache <elf> --out <json>
 //! victron-cli map-qml-fields <qmlcache-json> --out <json>
@@ -51,6 +52,8 @@ enum Command {
     ReadOnce(commands::read_once::ReadOnce),
     /// Read historical paths or the observed VREG fallback.
     ReadHistory(commands::read_history::ReadHistory),
+    /// Compare private raw history captures without assigning field semantics.
+    AnalyzeHistory(commands::analyze_history::AnalyzeHistory),
     /// Decode a captured notification fixture. Not wired yet.
     DecodeFixture(commands::decode_fixture::DecodeFixture),
     /// Extract QML cache strings from a little-endian ELF32 file.
@@ -94,6 +97,7 @@ async fn main() -> ExitCode {
         Command::Discover(c) => c.run(),
         Command::ReadOnce(c) => c.run().await,
         Command::ReadHistory(c) => c.run().await,
+        Command::AnalyzeHistory(c) => c.run(),
         Command::DecodeFixture(c) => c.run(),
         Command::ExtractQmlcache(c) => c.run(),
         Command::MapQmlFields(c) => c.run(),
