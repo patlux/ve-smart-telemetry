@@ -54,9 +54,51 @@ required_toml_string() {
   die "config has malformed, duplicate, escaped, or multiline [$section] $key string: $cfg"
 }
 
+# Extract one non-negative decimal TOML integer scoped to SECTION. Returns
+# 0 found, 1 missing, 2 malformed/duplicate/out-of-range.
+toml_u16_value() {
+  local cfg=$1 wanted_section=$2 wanted_key=$3 line trimmed section='' rhs found=0 value
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}
+    trimmed=${line#"${line%%[![:space:]]*}"}
+    [[ -z $trimmed || $trimmed == \#* ]] && continue
+    if [[ $trimmed =~ ^\[[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*\][[:space:]]*(#.*)?$ ]]; then
+      section=${BASH_REMATCH[1]}
+      continue
+    fi
+    [[ $section == "$wanted_section" ]] || continue
+    if [[ $trimmed =~ ^${wanted_key}[[:space:]]*=[[:space:]]*([^#]*)(#.*)?$ ]]; then
+      ((found == 0)) || return 2
+      rhs=${BASH_REMATCH[1]}
+      rhs=${rhs#"${rhs%%[![:space:]]*}"}
+      rhs=${rhs%"${rhs##*[![:space:]]}"}
+      [[ $rhs =~ ^[0-9]+$ ]] || return 2
+      value=$((10#$rhs))
+      ((value >= 0 && value <= 65535)) || return 2
+      found=1
+    fi
+  done <"$cfg"
+  ((found == 1)) || return 1
+  printf '%s\n' "$value"
+}
+
+required_toml_u16() {
+  local cfg=$1 section=$2 key=$3 value rc
+  if value=$(toml_u16_value "$cfg" "$section" "$key"); then
+    printf '%s\n' "$value"
+    return 0
+  else
+    rc=$?
+  fi
+  ((rc == 1)) && die "config missing [$section] $key integer: $cfg"
+  die "config has malformed, duplicate, or out-of-range [$section] $key integer: $cfg"
+}
+
 config_storage_path() { required_toml_string "$1" storage path; }
 config_vm_url() { required_toml_string "$1" victoria_metrics url; }
 config_ble_adapter() { required_toml_string "$1" device adapter; }
+config_bluez_alias() { required_toml_string "$1" device bluez_alias; }
+config_instance() { required_toml_u16 "$1" device instance; }
 
 check_config() {
   local cfg=$1 bin=${2:-} storage

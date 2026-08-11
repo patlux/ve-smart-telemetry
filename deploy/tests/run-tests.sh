@@ -477,7 +477,44 @@ rc=0
 ( VICTRON_BIN_DIR="$MOCK_DIR/empty-bin" check_config "$MOCK_DIR/traversal-config.toml" ) || rc=$?
 check "check_config rejects storage traversal" 1 "$rc"
 
-# --- 9. install-release.sh mocked install flow (--dry-run, no root) --------
+# --- 9. evidence config extraction stays section-scoped and fail-closed ----
+value=$(config_bluez_alias "$VALID_CONFIG")
+if [[ $value == "Solar Charger" ]]; then ok "history evidence reads scoped BlueZ alias"; else bad "history evidence alias mismatch"; fi
+value=$(config_ble_adapter "$VALID_CONFIG")
+if [[ $value == hci0 ]]; then ok "history evidence reads scoped adapter"; else bad "history evidence adapter mismatch"; fi
+value=$(config_instance "$VALID_CONFIG")
+if [[ $value == 3 ]]; then ok "history evidence reads scoped instance"; else bad "history evidence instance mismatch"; fi
+
+cat >"$MOCK_DIR/duplicate-instance.toml" <<'EOF'
+[device]
+bluez_alias = "Solar Charger"
+adapter = "hci0"
+instance = 3
+instance = 4
+EOF
+rc=0
+toml_u16_value "$MOCK_DIR/duplicate-instance.toml" device instance >/dev/null || rc=$?
+check "history evidence rejects duplicate instance" 2 "$rc"
+
+cat >"$MOCK_DIR/wrong-section-instance.toml" <<'EOF'
+[other]
+instance = 7
+[device]
+bluez_alias = "Solar Charger"
+adapter = "hci0"
+instance = 3 # bounded inline comment
+EOF
+value=$(config_instance "$MOCK_DIR/wrong-section-instance.toml")
+if [[ $value == 3 ]]; then ok "history evidence ignores same key in another section"; else bad "history evidence section scope failed"; fi
+
+for invalid in '3.0' '"3"' '-1' '65536'; do
+  sed "s/instance = 3/instance = $invalid/" "$MOCK_DIR/wrong-section-instance.toml" >"$MOCK_DIR/invalid-instance.toml"
+  rc=0
+  toml_u16_value "$MOCK_DIR/invalid-instance.toml" device instance >/dev/null || rc=$?
+  check "history evidence rejects invalid instance $invalid" 2 "$rc"
+done
+
+# --- 10. install-release.sh mocked install flow (--dry-run, no root) -------
 # The fake collector is the --binary; file/readelf/ldd are mocked; every
 # mutation is printed by --dry-run. VICTRON_* point at mock dirs;
 # VICTRON_STATE_DIR stays at its default so the valid config's storage.path

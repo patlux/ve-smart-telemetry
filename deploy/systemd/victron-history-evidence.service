@@ -1,0 +1,36 @@
+[Unit]
+Description=Collect one private VE.Smart history evidence capture
+Documentation=https://github.com/patlux/ve-smart-telemetry
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/victron-collector/capture-history-evidence.sh
+User=root
+Group=root
+UMask=0077
+StateDirectory=victron-history-evidence
+StateDirectoryMode=0700
+TimeoutStartSec=12min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/victron-history-evidence /run/lock
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service

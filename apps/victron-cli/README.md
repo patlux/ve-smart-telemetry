@@ -10,6 +10,7 @@ alternate BLE protocol stack is required.
 victron-cli read-once --device <alias> [--adapter hci0] [--instance 3]
 victron-cli read-history --device <alias> [--days 30] [--out history.json]
 victron-cli read-history --dry-run --days 30 --out history-dry-run.json
+victron-cli analyze-history <capture.json>... [--out comparison.json]
 victron-cli decode-fixture <path> [--instance 3] [--verbose]
 victron-cli extract-qmlcache <elf32> --out qmlcache.json [--tsv strings.tsv]
 victron-cli map-qml-fields <qmlcache.json> --out mapping.json [--md mapping.md]
@@ -36,7 +37,9 @@ victron-cli read-once --device 'Solar Charger'
 device or firmware rejects that API, it requests the observed history/trend
 VREG fallback. Registers `0x104f` and `0x1050` remain structured 34-byte word
 blocks until their per-day field layout is independently verified; the CLI
-does not invent history semantics.
+does not invent history semantics. Raw captures include bounded start and
+completion Unix-millisecond timestamps. The fallback also reads the registers
+advertised by the observed `0xec20` block, including `0xec3e` and `0xedec`.
 
 ```bash
 victron-cli read-history \
@@ -50,6 +53,25 @@ VREGs can be requested with repeated `--path` and `--vreg` arguments. On the
 tested charger, `GetPathList` returns the bounded VE.Smart control error
 `f7 code 3`; this is a device/firmware rejection, not connection contention,
 and automatically selects the VREG fallback.
+
+For private multi-capture research, use `--raw` and keep the result outside the
+public repository. `analyze-history` compares byte offsets, both endian word
+views, payload hashes, and changes between chronologically supplied captures;
+it deliberately reports `semanticsConfirmed=false` and never assigns field
+meanings:
+
+```bash
+victron-cli analyze-history capture-1.json capture-2.json \
+  --out comparison.json
+```
+
+For bounded unattended research, operators may invoke
+`deploy/scripts/capture-history-evidence.sh` from a private, finite systemd
+timer. The script keeps captures under `/var/lib/victron-history-evidence`,
+stops and restores the collector with a trap, waits for a new delivered
+recovery cycle, verifies listener freedom, hashes the capture, and builds a
+cumulative raw comparison after the second observation. Site-specific dates
+remain local and are intentionally not committed.
 
 ## Bounded BLE diagnostics
 
