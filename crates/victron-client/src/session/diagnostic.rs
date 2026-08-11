@@ -13,13 +13,66 @@ impl VeSmartBleSession {
     /// Open and negotiate using the fixed read-only control handshake.
     /// Caller-provided control bytes are deliberately not accepted.
     pub async fn open_read_only(&mut self) -> Result<(), BleError> {
-        self.discover().await?;
+        let started_at = Instant::now();
+        tracing::debug!(
+            operation = "diagnostic-open",
+            stage = "transport",
+            "opening read-only diagnostic session"
+        );
+        if let Err(error) = self.discover().await {
+            tracing::debug!(
+                operation = "diagnostic-open",
+                stage = "transport",
+                outcome = "failed",
+                error_kind = error.kind(),
+                timeout_operation = error.operation().unwrap_or("none"),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                "read-only diagnostic transport open failed"
+            );
+            return Err(error);
+        }
+        tracing::debug!(
+            operation = "diagnostic-open",
+            stage = "transport",
+            outcome = "opened",
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "read-only diagnostic transport opened"
+        );
         self.connect().await?;
         let frames = victron_protocol::control::NEGOTIATION_WRITES
             .iter()
             .map(|frame| frame.to_vec())
             .collect::<Vec<_>>();
-        self.negotiate(&frames).await
+        tracing::debug!(
+            operation = "diagnostic-open",
+            stage = "negotiate",
+            frame_count = frames.len(),
+            "negotiating read-only diagnostic session"
+        );
+        match self.negotiate(&frames).await {
+            Ok(()) => {
+                tracing::debug!(
+                    operation = "diagnostic-open",
+                    stage = "negotiate",
+                    outcome = "ready",
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "read-only diagnostic session ready"
+                );
+                Ok(())
+            }
+            Err(error) => {
+                tracing::debug!(
+                    operation = "diagnostic-open",
+                    stage = "negotiate",
+                    outcome = "failed",
+                    error_kind = error.kind(),
+                    timeout_operation = error.operation().unwrap_or("none"),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "read-only diagnostic negotiation failed"
+                );
+                Err(error)
+            }
+        }
     }
 
     /// Subscribe to one positive VE.Smart instance.
@@ -27,10 +80,39 @@ impl VeSmartBleSession {
         if instance == 0 {
             return Err(BleError::Other("instance must be positive".into()));
         }
+        let started_at = Instant::now();
         let payload = Request::Subscribe { instance }
             .encode()
             .map_err(map_protocol_error)?;
-        self.subscribe(instance, &payload).await
+        tracing::debug!(
+            operation = "diagnostic-subscribe",
+            instance,
+            "subscribing read-only diagnostic session"
+        );
+        match self.subscribe(instance, &payload).await {
+            Ok(()) => {
+                tracing::debug!(
+                    operation = "diagnostic-subscribe",
+                    instance,
+                    outcome = "subscribed",
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "read-only diagnostic subscription ready"
+                );
+                Ok(())
+            }
+            Err(error) => {
+                tracing::debug!(
+                    operation = "diagnostic-subscribe",
+                    instance,
+                    outcome = "failed",
+                    error_kind = error.kind(),
+                    timeout_operation = error.operation().unwrap_or("none"),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "read-only diagnostic subscription failed"
+                );
+                Err(error)
+            }
+        }
     }
 
     /// Execute one typed read-only request and collect matching responses.
@@ -54,8 +136,28 @@ impl VeSmartBleSession {
         }
 
         self.pending.clear();
+        let started_at = Instant::now();
+        let opcode = request.opcode().as_u8();
         let payload = request.encode().map_err(map_protocol_error)?;
-        self.write_request(&payload).await?;
+        tracing::debug!(
+            operation = "diagnostic-request",
+            opcode,
+            request_bytes = payload.len(),
+            timeout_ms = timeout.as_millis() as u64,
+            "sending typed read-only diagnostic request"
+        );
+        if let Err(error) = self.write_request(&payload).await {
+            tracing::debug!(
+                operation = "diagnostic-request",
+                opcode,
+                outcome = "write-failed",
+                error_kind = error.kind(),
+                timeout_operation = error.operation().unwrap_or("none"),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                "typed read-only diagnostic request write failed"
+            );
+            return Err(error);
+        }
 
         let deadline = Instant::now() + timeout;
         let mut quiet_deadline = None;
@@ -67,8 +169,30 @@ impl VeSmartBleSession {
                 .unwrap_or(deadline);
             let payload = match self.next_payload(wait_until, &mut counts).await {
                 Ok(payload) => payload,
-                Err(BleError::Timeout { .. }) if !collected.is_empty() => return Ok(collected),
-                Err(error) => return Err(error),
+                Err(BleError::Timeout { .. }) if !collected.is_empty() => {
+                    tracing::debug!(
+                        operation = "diagnostic-request",
+                        opcode,
+                        outcome = "quiet-complete",
+                        response_records = collected.len(),
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        "typed read-only diagnostic request completed after quiet period"
+                    );
+                    return Ok(collected);
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        operation = "diagnostic-request",
+                        opcode,
+                        outcome = "failed",
+                        error_kind = error.kind(),
+                        timeout_operation = error.operation().unwrap_or("none"),
+                        response_records = collected.len(),
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        "typed read-only diagnostic request failed"
+                    );
+                    return Err(error);
+                }
             };
             let responses = Response::parse_stream(&payload).map_err(map_protocol_error)?;
             collected.extend(
@@ -77,6 +201,14 @@ impl VeSmartBleSession {
                     .filter(|response| response_matches_request(response, request)),
             );
             if request_is_complete(request, &collected) {
+                tracing::debug!(
+                    operation = "diagnostic-request",
+                    opcode,
+                    outcome = "complete",
+                    response_records = collected.len(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "typed read-only diagnostic request completed"
+                );
                 return Ok(collected);
             }
             if !collected.is_empty() {

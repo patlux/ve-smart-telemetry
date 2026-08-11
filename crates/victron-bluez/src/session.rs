@@ -301,7 +301,17 @@ impl BleTransport for BluezTransport {
             device.is_connected().await.map_err(|e| from_bluer(&e))
         })
         .await?;
+        tracing::debug!(
+            operation = "connection-ownership",
+            already_connected,
+            "checked BLE connection ownership before connect"
+        );
         if already_connected {
+            tracing::debug!(
+                operation = "connection-ownership",
+                outcome = "foreign-connection",
+                "refusing to adopt an existing BLE connection"
+            );
             return Err(BleError::Contention {
                 detail: "already-connected",
             });

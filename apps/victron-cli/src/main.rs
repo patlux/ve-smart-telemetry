@@ -24,6 +24,7 @@
 
 mod commands;
 mod exit;
+mod logging;
 
 use std::process::ExitCode;
 
@@ -83,6 +84,10 @@ impl CliError {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
+    if let Err(error) = logging::init() {
+        eprintln!("victron-cli: {error}");
+        return ExitCode::from(exit::RUNTIME);
+    }
     let cli = Cli::parse();
     let result: Result<(), CliError> = match cli.command {
         Command::Adapters(c) => c.run(),
