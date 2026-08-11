@@ -127,7 +127,7 @@ if [ "$was_active" = true ]; then
   done
   systemctl is-active --quiet "$COLLECTOR_SERVICE" || fail "collector did not recover"
   success=false
-  for _ in $(seq 1 16); do
+  for _ in $(seq 1 20); do
     if journalctl -u "$COLLECTOR_SERVICE" --since "@${recovery_epoch}" --no-pager -o cat \
       | grep -q 'acquisition cycle succeeded.*delivery=Delivered'; then
       success=true
