@@ -349,8 +349,16 @@ check_no_inbound() {
 # update-release.sh snapshots the installed collector AND the installed CLI
 # with the same timestamp, so the Nth newest collector backup is paired with
 # the Nth newest CLI backup. rollback-release.sh restores both.
-list_backups() { ls -1t "$VICTRON_BACKUP_DIR"/victron-collector.* 2>/dev/null || true; }
-list_cli_backups() { ls -1t "$VICTRON_BACKUP_DIR"/victron-cli.* 2>/dev/null || true; }
+# Snapshot filenames end in a fixed-width YYYYmmddHHMMSS timestamp. Sort by
+# that timestamp, not file mtime: `cp -p` deliberately preserves the source
+# mtime, so `ls -t` can otherwise delete the snapshot that was just created.
+list_named_backups() {
+  local prefix=$1
+  find "$VICTRON_BACKUP_DIR" -maxdepth 1 -type f -name "$prefix.*" -print 2>/dev/null \
+    | LC_ALL=C sort -r
+}
+list_backups() { list_named_backups "$VICTRON_BINARY"; }
+list_cli_backups() { list_named_backups "$VICTRON_CLI"; }
 newest_backup() { list_backups | head -1; }
 
 restore_backup() {

@@ -699,7 +699,33 @@ else
   bad "rollback first validation target wrong: $first_event"
 fi
 
-# --- 16. update automatic rollback prevalidation ordering ------------------
+# --- 16. backup ordering follows snapshot timestamps, not preserved mtime ---
+ORDER_ROOT="$MOCK_DIR/order-root"
+mkdir -p "$ORDER_ROOT"
+for name in \
+  victron-collector.20260810120000 victron-collector.20260811120000 \
+  victron-cli.20260810120000 victron-cli.20260811120000; do
+  : >"$ORDER_ROOT/$name"
+done
+# Make the newest named snapshots look oldest by mtime. Timestamp sorting must
+# still select them first and pruning must retain them.
+touch -t 202001010000 "$ORDER_ROOT/victron-collector.20260811120000" "$ORDER_ROOT/victron-cli.20260811120000"
+touch -t 203001010000 "$ORDER_ROOT/victron-collector.20260810120000" "$ORDER_ROOT/victron-cli.20260810120000"
+value=$(VICTRON_BACKUP_DIR="$ORDER_ROOT" newest_backup)
+if [[ $value == "$ORDER_ROOT/victron-collector.20260811120000" ]]; then ok "newest backup follows filename timestamp"; else bad "newest backup followed mtime: $value"; fi
+VICTRON_BACKUP_DIR="$ORDER_ROOT" prune_backups 1
+if [[ -f $ORDER_ROOT/victron-collector.20260811120000 && -f $ORDER_ROOT/victron-cli.20260811120000 ]]; then
+  ok "backup pruning retains newest named pair"
+else
+  bad "backup pruning removed newest named pair"
+fi
+if [[ ! -e $ORDER_ROOT/victron-collector.20260810120000 && ! -e $ORDER_ROOT/victron-cli.20260810120000 ]]; then
+  ok "backup pruning removes oldest named pair"
+else
+  bad "backup pruning retained oldest named pair"
+fi
+
+# --- 17. update automatic rollback prevalidation ordering ------------------
 UP_ROOT="$MOCK_DIR/update-root"
 mkdir -p "$UP_ROOT/bin" "$UP_ROOT/backups" "$UP_ROOT/state"
 printf 'old collector\n' >"$UP_ROOT/bin/victron-collector"
