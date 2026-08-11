@@ -175,7 +175,16 @@ impl ReadHistory {
             .await;
         let paths = match list_responses {
             Ok(responses) => decode_paths(&responses)?,
-            Err(error) if error.kind() == "timeout" => Vec::new(),
+            Err(error) if path_api_unavailable(error.kind(), error.peer_control_code()) => {
+                tracing::debug!(
+                    operation = "history-path-list",
+                    outcome = "vreg-fallback",
+                    error_kind = error.kind(),
+                    peer_control_code = error.peer_control_code().unwrap_or(0),
+                    "path API unavailable; using observed read-only VREG fallback"
+                );
+                Vec::new()
+            }
             Err(error) => return Err(runtime(error.to_string())),
         };
         if paths.is_empty() {
@@ -320,6 +329,10 @@ impl ReadHistory {
     }
 }
 
+fn path_api_unavailable(error_kind: &str, peer_control_code: Option<u16>) -> bool {
+    error_kind == "timeout" || peer_control_code.is_some()
+}
+
 fn candidate_paths(days: u16, detail: bool, extra: &[String]) -> Vec<String> {
     let mut paths = SUMMARY_PATHS
         .iter()
@@ -455,6 +468,13 @@ mod tests {
     use super::*;
     use flate2::{write::ZlibEncoder, Compression};
     use std::io::Write;
+
+    #[test]
+    fn peer_control_and_timeout_enable_fallback_but_contention_does_not() {
+        assert!(path_api_unavailable("peer_control", Some(3)));
+        assert!(path_api_unavailable("timeout", None));
+        assert!(!path_api_unavailable("contention", None));
+    }
 
     #[test]
     fn candidate_paths_include_daily_and_relative_forms() {

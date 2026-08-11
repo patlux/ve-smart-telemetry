@@ -636,7 +636,7 @@ Suggested capture table:
 | Subscribe | app sends opcode `0x03` with instance | observed: `0303`, response-like `07000300` |
 | Value read | app sends opcode `0x05`; peripheral responds with `0x08` value records | observed live |
 | Path API | app sends `0x0a`/`0x0b` path requests | rejected/unavailable on tested device; no `PathList` received |
-| History fallback | device pushes/returns history/trend VREG blocks | observed: `0x104f`, `0x1050`, `0xec20`, `0x2001`, `0x2007`, `0x2008`, `0x200b`, `0x2013`, `0x2027` |
+| History fallback | device pushes/returns history/trend VREG blocks | observed: `0x104f`, `0x1050`, `0xec20`, `0x2001`, `0x2007`, `0x2008`, `0x200b`, `0x2013`, `0x2027`; on the tested charger `GetPathList (0x0a)` returns Control `f7 code 3`, after which the read-only VREG fallback succeeds |
 | Keep-alive | app writes VREG `0x0093` value `10 27` on instance `0` | todo |
 | DFU start | base service StartDfu write behavior confirmed | todo |
 | Modern DFU | service `68c10001-...`, CCCD `0100`, control opcodes | todo |

@@ -25,6 +25,9 @@ pub enum BleError {
     /// Another client (e.g. VictronConnect) holds or steals the connection.
     #[error("connection contention")]
     Contention,
+    /// The VE.Smart peer emitted a bounded `f7` control error.
+    #[error("peer control error: {code}")]
+    PeerControl { code: u16 },
     /// Bond/pairing problem.
     #[error("authentication failure")]
     Authentication,
@@ -52,6 +55,7 @@ impl BleError {
             BleError::NotFound => "not_found",
             BleError::OutOfRange => "out_of_range",
             BleError::Contention => "contention",
+            BleError::PeerControl { .. } => "peer_control",
             BleError::Authentication => "authentication",
             BleError::Timeout { .. } => "timeout",
             BleError::Disconnected => "disconnected",
@@ -65,6 +69,14 @@ impl BleError {
     pub fn operation(&self) -> Option<&'static str> {
         match self {
             BleError::Timeout { operation } => Some(operation),
+            _ => None,
+        }
+    }
+
+    /// Bounded VE.Smart control error code, when the peer emitted `f7`.
+    pub fn peer_control_code(&self) -> Option<u16> {
+        match self {
+            BleError::PeerControl { code } => Some(*code),
             _ => None,
         }
     }
@@ -120,4 +132,20 @@ pub trait BleSession {
     /// Hard-close the connection. Failure and shutdown paths always use this
     /// operation. Must be idempotent and safe to call after any failure.
     async fn disconnect(&mut self) -> Result<(), BleError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BleError;
+
+    #[test]
+    fn peer_control_error_is_distinct_from_connection_contention() {
+        let error = BleError::PeerControl { code: 3 };
+        assert_eq!(error.kind(), "peer_control");
+        assert_eq!(error.peer_control_code(), Some(3));
+        assert_eq!(error.operation(), None);
+        assert_eq!(error.to_string(), "peer control error: 3");
+        assert_eq!(BleError::Contention.kind(), "contention");
+        assert_eq!(BleError::Contention.peer_control_code(), None);
+    }
 }

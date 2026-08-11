@@ -118,7 +118,15 @@ impl VeSmartBleSession {
                 NotificationSource::Control => {
                     counts.control = counts.control.saturating_add(1);
                     match ControlMessage::parse(&notification.value) {
-                        Ok(ControlMessage::Error { .. }) => return Err(BleError::Contention),
+                        Ok(ControlMessage::Error { code }) => {
+                            tracing::debug!(
+                                operation = "control-notification",
+                                outcome = "peer-error",
+                                control_error_code = code,
+                                "VE.Smart peer reported a bounded control error"
+                            );
+                            return Err(BleError::PeerControl { code });
+                        }
                         Ok(ControlMessage::ClearBuffer) => {
                             counts.clear_buffer = counts.clear_buffer.saturating_add(1);
                             self.pending.clear();

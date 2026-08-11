@@ -46,7 +46,25 @@ victron-cli read-history \
 ```
 
 Use `--no-vreg-fallback` to require the path API. Extra read-only paths and
-VREGs can be requested with repeated `--path` and `--vreg` arguments.
+VREGs can be requested with repeated `--path` and `--vreg` arguments. On the
+tested charger, `GetPathList` returns the bounded VE.Smart control error
+`f7 code 3`; this is a device/firmware rejection, not connection contention,
+and automatically selects the VREG fallback.
+
+## Bounded BLE diagnostics
+
+CLI diagnostics are quiet by default. Enable targeted stderr tracing for a
+single command without exposing MAC addresses, aliases, raw BLE frames, D-Bus
+messages, or payload bytes:
+
+```bash
+RUST_LOG='warn,victron_bluez=debug,victron_client=debug,victron_cli=debug' \
+  victron-cli read-history --device 'Solar Charger'
+```
+
+The trace reports bounded stages, durations, request opcodes, error classes,
+timeout operation labels, and VE.Smart `f7` control error codes. Remove the
+environment override after investigation.
 
 ## Offline research tools
 
