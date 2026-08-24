@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Victron BLE collector for wedged discovery
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=victron-autoheal.service
+
+[Install]
+WantedBy=timers.target

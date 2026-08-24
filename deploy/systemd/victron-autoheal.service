@@ -1,0 +1,32 @@
+[Unit]
+Description=Recover wedged Victron BlueZ discovery
+After=bluetooth.service victron-collector.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/victron-autoheal
+StateDirectory=victron-autoheal
+User=root
+Group=root
+
+# The recovery helper must control only the two local services and read the
+# journal. It opens no sockets and stores only its cooldown timestamp.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX
+RemoveIPC=yes
+UMask=0022
+MemoryDenyWriteExecute=yes
+ReadWritePaths=/var/lib/victron-autoheal

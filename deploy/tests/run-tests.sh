@@ -52,6 +52,16 @@ cat >"$MOCK_DIR/ss" <<'EOF'
 printf '%s\n' "${FAKE_SS_OUTPUT:-}"
 exit 0
 EOF
+cat >"$MOCK_DIR/journalctl" <<'EOF'
+#!/usr/bin/env bash
+# Before collector restart, return the detection window. Afterwards return
+# recovery logs so autoheal verification can observe resumed acquisition.
+if [[ -n ${FAKE_SYSTEMCTL_LOG:-} ]] && grep -q '^restart victron-collector$' "$FAKE_SYSTEMCTL_LOG" 2>/dev/null; then
+  printf '%s\n' "${FAKE_JOURNAL_RECOVERY:-}"
+else
+  printf '%s\n' "${FAKE_JOURNAL_INITIAL:-}"
+fi
+EOF
 cat >"$MOCK_DIR/file" <<'EOF'
 #!/usr/bin/env bash
 # mock file(1): print FAKE_FILE_OUTPUT.
@@ -749,6 +759,59 @@ if [[ $install_count == 1 ]]; then ok "update leaves candidate when backup rejec
 restart_count=$(grep -c '^restart victron-collector$' "$FAKE_SYSTEMCTL_LOG" || true)
 if [[ $restart_count == 1 ]]; then ok "update does not restart incompatible rollback backup"; else bad "unexpected update restart count: $restart_count"; fi
 if grep -q 'rollback backup rejects the effective config' <<<"$out"; then ok "update reports backup config incompatibility"; else bad "update missing rollback incompatibility report"; fi
+
+# --- 18. bounded BlueZ autoheal --------------------------------------------
+AUTOHEAL="$SCRIPT_DIR/../scripts/autoheal.sh"
+AUTOHEAL_STATE="$MOCK_DIR/autoheal-state"
+
+: >"$FAKE_SYSTEMCTL_LOG"
+rc=0
+out=$(env VICTRON_TEST_ASSUME_ROOT=1 VICTRON_AUTOHEAL_STATE_DIR="$AUTOHEAL_STATE" \
+  FAKE_JOURNAL_INITIAL='acquisition cycle succeeded cycle_id=10 device=balkonsolar' \
+  "$AUTOHEAL" 2>&1) || rc=$?
+check "autoheal leaves healthy collector untouched" 0 "$rc"
+if [[ -s $FAKE_SYSTEMCTL_LOG ]]; then bad "autoheal restarted healthy services"; else ok "autoheal: no restart while healthy"; fi
+
+: >"$FAKE_SYSTEMCTL_LOG"
+rc=0
+out=$(env VICTRON_TEST_ASSUME_ROOT=1 VICTRON_AUTOHEAL_STATE_DIR="$AUTOHEAL_STATE" \
+  FAKE_JOURNAL_INITIAL='acquisition cycle failed phase=discovering error_kind="contention"' \
+  "$AUTOHEAL" 2>&1) || rc=$?
+check "autoheal ignores isolated contention" 0 "$rc"
+if [[ -s $FAKE_SYSTEMCTL_LOG ]]; then bad "autoheal restarted below threshold"; else ok "autoheal: no restart below threshold"; fi
+
+rm -rf "$AUTOHEAL_STATE"
+: >"$FAKE_SYSTEMCTL_LOG"
+rc=0
+out=$(env VICTRON_TEST_ASSUME_ROOT=1 VICTRON_AUTOHEAL_STATE_DIR="$AUTOHEAL_STATE" \
+  VICTRON_AUTOHEAL_NOW=1787586000 VICTRON_AUTOHEAL_VERIFY_ATTEMPTS=1 \
+  VICTRON_AUTOHEAL_VERIFY_INTERVAL_SECONDS=1 \
+  FAKE_JOURNAL_INITIAL=$'acquisition cycle failed phase=discovering error_kind="contention"\nacquisition cycle failed phase=discovering error_kind="contention"\nacquisition cycle failed phase=discovering error_kind="contention"' \
+  FAKE_JOURNAL_RECOVERY='acquisition cycle succeeded cycle_id=1 device=balkonsolar' \
+  "$AUTOHEAL" 2>&1) || rc=$?
+check "autoheal recovers repeated discovery contention" 0 "$rc"
+if grep -q '^restart bluetooth.service$' "$FAKE_SYSTEMCTL_LOG" && grep -q '^restart victron-collector$' "$FAKE_SYSTEMCTL_LOG"; then
+  ok "autoheal restarts BlueZ then collector"
+else
+  bad "autoheal recovery restarts missing"
+fi
+if grep -q 'recovery successful' <<<"$out"; then ok "autoheal verifies resumed acquisition"; else bad "autoheal success verification missing"; fi
+bluetooth_line=$(grep -n '^restart bluetooth.service$' "$FAKE_SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
+collector_line=$(grep -n '^restart victron-collector$' "$FAKE_SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
+if [[ -n $bluetooth_line && -n $collector_line && $bluetooth_line -lt $collector_line ]]; then
+  ok "autoheal restarts BlueZ before collector"
+else
+  bad "autoheal restart order wrong"
+fi
+
+: >"$FAKE_SYSTEMCTL_LOG"
+rc=0
+out=$(env VICTRON_TEST_ASSUME_ROOT=1 VICTRON_AUTOHEAL_STATE_DIR="$AUTOHEAL_STATE" \
+  VICTRON_AUTOHEAL_NOW=1787586060 \
+  FAKE_JOURNAL_INITIAL=$'acquisition cycle failed phase=discovering error_kind="contention"\nacquisition cycle failed phase=discovering error_kind="contention"\nacquisition cycle failed phase=discovering error_kind="contention"' \
+  "$AUTOHEAL" 2>&1) || rc=$?
+check "autoheal cooldown exits cleanly" 0 "$rc"
+if [[ -s $FAKE_SYSTEMCTL_LOG ]]; then bad "autoheal restarted during cooldown"; else ok "autoheal: cooldown prevents restart loop"; fi
 
 # --- summary ---------------------------------------------------------------
 printf '\n=== tests: %s passed, %s failed ===\n' "$PASS" "$FAIL"

@@ -96,7 +96,12 @@ done
 [[ -f $BINARY ]] || die "binary not found: $BINARY"
 CONFIG=${CONFIG:-$SCRIPT_DIR/../systemd/victron-collector.example.toml}
 UNIT_SRC=$SCRIPT_DIR/../systemd/$VICTRON_UNIT
-[[ -f $UNIT_SRC ]] || die "unit template not found: $UNIT_SRC"
+AUTOHEAL_SCRIPT_SRC=$SCRIPT_DIR/autoheal.sh
+AUTOHEAL_SERVICE_SRC=$SCRIPT_DIR/../systemd/$VICTRON_AUTOHEAL_SERVICE
+AUTOHEAL_TIMER_SRC=$SCRIPT_DIR/../systemd/$VICTRON_AUTOHEAL_TIMER
+for required in "$UNIT_SRC" "$AUTOHEAL_SCRIPT_SRC" "$AUTOHEAL_SERVICE_SRC" "$AUTOHEAL_TIMER_SRC"; do
+  [[ -f $required ]] || die "release asset not found: $required"
+done
 [[ -f $CONFIG ]] || die "config template not found: $CONFIG"
 
 # A dry run performs no mutations, so it does not need root; this also makes
@@ -131,7 +136,7 @@ info "=== accounts ==="
 ensure_accounts
 
 info "=== directories ==="
-run mkdir -p "$VICTRON_BIN_DIR" "$VICTRON_ETC_DIR" "$VICTRON_STATE_DIR" "$VICTRON_BACKUP_DIR"
+run mkdir -p "$VICTRON_BIN_DIR" "$VICTRON_LIBEXEC_DIR" "$VICTRON_ETC_DIR" "$VICTRON_STATE_DIR" "$VICTRON_BACKUP_DIR"
 run chown "$VICTRON_USER:$VICTRON_GROUP" "$VICTRON_STATE_DIR"
 run chmod 0750 "$VICTRON_STATE_DIR"
 
@@ -147,13 +152,16 @@ if [[ ! -f $VICTRON_CONFIG || $FORCE_CONFIG -eq 1 ]]; then
   info "installed config: $VICTRON_CONFIG"
 fi
 
-info "=== systemd unit ==="
+info "=== systemd units and autoheal ==="
 # Detect a first install BEFORE installing the unit file: whether the unit
 # existed before this run decides if we enable/start (reinstall) or leave
 # the service disabled/stopped for pairing (first install).
 FIRST_INSTALL=0
 [[ -f $VICTRON_UNIT_DIR/$VICTRON_UNIT ]] || FIRST_INSTALL=1
 run install -o root -g root -m 0644 "$UNIT_SRC" "$VICTRON_UNIT_DIR/$VICTRON_UNIT"
+run install -o root -g root -m 0755 "$AUTOHEAL_SCRIPT_SRC" "$VICTRON_LIBEXEC_DIR/victron-autoheal"
+run install -o root -g root -m 0644 "$AUTOHEAL_SERVICE_SRC" "$VICTRON_UNIT_DIR/$VICTRON_AUTOHEAL_SERVICE"
+run install -o root -g root -m 0644 "$AUTOHEAL_TIMER_SRC" "$VICTRON_UNIT_DIR/$VICTRON_AUTOHEAL_TIMER"
 run systemctl daemon-reload
 
 if ((FIRST_INSTALL)); then
@@ -167,11 +175,20 @@ else
   # implies no enable ("do not enable or start").
   enable_start_service 0 || exit 1
 fi
+# Autoheal follows the collector lifecycle: on first install both remain
+# disabled until pairing is complete; on reinstall both are enabled/started
+# unless the operator requested --no-enable/--no-start.
+if ((!FIRST_INSTALL && !NO_ENABLE)); then
+  run systemctl enable "$VICTRON_AUTOHEAL_TIMER"
+fi
+if ((!FIRST_INSTALL && !NO_START)); then
+  run systemctl start "$VICTRON_AUTOHEAL_TIMER"
+fi
 
 info "=== install complete ==="
 if ((FIRST_INSTALL)); then
   info "Next: pair the Victron device once (deploy/scripts/pair-device.sh), then"
-  info "enable/start with: sudo systemctl enable --now $VICTRON_SERVICE"
+  info "enable/start with: sudo systemctl enable --now $VICTRON_SERVICE $VICTRON_AUTOHEAL_TIMER"
   info "and confirm with: sudo deploy/scripts/verify-installation.sh --strict"
 else
   info "Next: run deploy/scripts/verify-installation.sh to confirm everything."

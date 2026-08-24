@@ -190,6 +190,22 @@ if svc_is_active; then
 else
   result "service active" fail "not running (systemctl status $VICTRON_SERVICE)"
 fi
+AUTOHEAL_SCRIPT="$VICTRON_LIBEXEC_DIR/victron-autoheal"
+if [[ -x $AUTOHEAL_SCRIPT ]]; then
+  result "autoheal helper" pass "$AUTOHEAL_SCRIPT present"
+else
+  result "autoheal helper" fail "missing or not executable: $AUTOHEAL_SCRIPT"
+fi
+if systemctl is-enabled --quiet "$VICTRON_AUTOHEAL_TIMER" 2>/dev/null; then
+  result "autoheal timer enabled" pass ""
+else
+  result "autoheal timer enabled" fail "not enabled ($VICTRON_AUTOHEAL_TIMER)"
+fi
+if systemctl is-active --quiet "$VICTRON_AUTOHEAL_TIMER" 2>/dev/null; then
+  result "autoheal timer active" pass ""
+else
+  result "autoheal timer active" fail "not active ($VICTRON_AUTOHEAL_TIMER)"
+fi
 
 # --- 5. configuration ------------------------------------------------------
 if [[ -f $VICTRON_CONFIG ]]; then

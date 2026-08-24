@@ -21,6 +21,9 @@ set -euo pipefail
 : "${VICTRON_BACKUP_DIR:=/usr/local/lib/victron-collector/backups}"
 : "${VICTRON_UNIT_DIR:=/etc/systemd/system}"
 : "${VICTRON_UNIT:=victron-collector.service}"
+: "${VICTRON_AUTOHEAL_SERVICE:=victron-autoheal.service}"
+: "${VICTRON_AUTOHEAL_TIMER:=victron-autoheal.timer}"
+: "${VICTRON_LIBEXEC_DIR:=/usr/local/libexec}"
 VICTRON_CONFIG="${VICTRON_CONFIG:-$VICTRON_ETC_DIR/config.toml}"
 VICTRON_DB="${VICTRON_DB:-$VICTRON_STATE_DIR/state.sqlite3}"
 

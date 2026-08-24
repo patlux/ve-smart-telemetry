@@ -270,6 +270,25 @@ BlueZ owns the bond (`/var/lib/bluetooth/<adapter>/<device>/`, root-only).
 The collector reconnects on its own cycle; no manual action after a
 bluetoothd restart.
 
+## Automatic BlueZ recovery
+
+`victron-autoheal.timer` runs every five minutes and evaluates only the local
+collector journal. It takes no action after isolated BLE failures. Recovery is
+triggered only when the preceding 15 minutes contain at least three
+`phase=discovering error_kind="contention"` failures and no successful
+acquisition.
+
+A recovery restarts `bluetooth.service` followed by `victron-collector.service`,
+then waits up to two minutes for an `acquisition cycle succeeded` event. The
+last recovery timestamp is persisted under `/var/lib/victron-autoheal`, with a
+30-minute cooldown to prevent restart loops.
+
+```bash
+systemctl status victron-autoheal.timer
+journalctl -u victron-autoheal.service
+sudo systemctl start victron-autoheal.service # manual evaluation/recovery
+```
+
 ## Database / spool maintenance
 
 - Bounded by config: `maximum_spool_batches`, `maximum_spool_age_days`.

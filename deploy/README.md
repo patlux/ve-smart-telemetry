@@ -9,6 +9,8 @@ when an operator invokes them with root.
 deploy/
   systemd/
     victron-collector.service        systemd unit (hardened, incremental)
+    victron-autoheal.service         bounded BlueZ recovery check
+    victron-autoheal.timer           five-minute recovery schedule
     victron-collector.example.toml   reference config (no credentials)
   scripts/
     lib.sh                   shared helpers (ARMv6 verify, reachability, ...)
@@ -18,6 +20,7 @@ deploy/
     verify-installation.sh   read-only full health report
     exposure-check.sh        read-only, network-only reachability probe (any host)
     pair-device.sh           one-time local bluetoothctl pairing (PIN in bluetoothctl)
+    autoheal.sh              recover repeated discovery contention with cooldown
   tests/
     run-tests.sh             non-mutating shell-level tests (mock curl/ss/systemctl)
 ```
@@ -47,7 +50,7 @@ sudo deploy/scripts/install-release.sh --binary ./victron-collector --cli ./vict
 # 2. pair the Victron device once (PIN is typed inside bluetoothctl)
 deploy/scripts/pair-device.sh
 # 3. enable/start, then verify everything (read-only)
-sudo systemctl enable --now victron-collector
+sudo systemctl enable --now victron-collector victron-autoheal.timer
 sudo deploy/scripts/verify-installation.sh --strict
 ```
 
@@ -62,6 +65,11 @@ sudo deploy/scripts/verify-installation.sh --strict
   scripts reject ARMv7+ builds. No assumption of ARMv7 is made anywhere.
 - Pairing is a one-time local `bluetoothctl` step; no PIN literal exists in
   this repository, and no script captures a PIN into the shell.
+- `victron-autoheal.timer` checks every five minutes. It restarts BlueZ and
+  the collector only after at least three discovery-contention failures and
+  no successful acquisition in 15 minutes. A persisted 30-minute cooldown
+  prevents restart loops, and recovery must produce a successful acquisition
+  within two minutes.
 - `exposure-check.sh` is the only intended way to assert the endpoint is
   blocked from an off-tailnet host (`--unreachable URL`); it is read-only
   and network-only and runs on any host.
